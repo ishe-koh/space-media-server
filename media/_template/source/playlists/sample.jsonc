@@ -1,0 +1,46 @@
+// Sample server-side playlist (JSONC)
+// - Use `source` for inputs under source/
+// - `auto_policy` can populate items from a folder
+// - `lane_policy` and `policy` accept `anchor` (9-grid)
+{
+  "meta": {
+    "default_volume": 100,
+    "default_loop": true,
+    "default_start_offset_sec": 0
+  },
+
+  // If a lane has no items, include files from this folder
+  "auto_policy": {
+    "directory": "raw/always",
+    "mode": "replace_if_empty",
+    "sort": "asc",
+    "extensions": [".mp4", ".png", ".jpg"]
+  },
+
+  "lanes": {
+    "lane0": {
+      // Default positioning for this lane
+      "lane_policy": {
+        "fill": "contain",
+        "anchor": "top_left"
+      },
+      "items": [
+        {"source": "raw/movie_a.mp4"},
+        {
+          "source": "raw/poster_a.png",
+          "duration_sec": 12,
+          "policy": {"anchor": "center"}
+        }
+      ]
+    },
+
+    "lane1": {
+      // You can override auto_policy per lane
+      "auto_policy": {
+        "directory": "raw/lane1",
+        "mode": "append_remaining"
+      },
+      "items": []
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "cabinet": {
+    "width": 128,
+    "height": 256
+  },
+  "screen": {
+    "cols": 10,
+    "rows": 1
+  },
+  "lanes": {
+    "cols": 3,
+    "rows": 1
+  },
+  "lane_policy": {
+    "fill": "contain",
+    "align_x": "center",
+    "align_y": "center",
+    "image_duration_sec": 10,
+    "fps": 30
+  },
+  "encoding": {
+    "video_codec": "libx264",
+    "crf": 18,
+    "preset": "veryfast",
+    "pix_fmt": "yuv420p",
+    "audio_codec": "aac",
+    "audio_bitrate": "128k",
+    "audio_normalize": true,
+    "audio_normalize_filter": "loudnorm=I=-16:TP=-1.5:LRA=11"
+  }
+}

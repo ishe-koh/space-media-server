@@ -1,0 +1,12 @@
+# Generated outputs
+/media/*/out/
+/system_media/*.mp4
+
+# Inputs (example vision)
+/media/*/source/raw/*
+!/media/*/source/raw/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/

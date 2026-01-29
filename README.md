@@ -121,6 +121,15 @@ Generate sync_media.env snippet for vision-player:
 ./tools/emit_sync_env.py akiba_01 --remote-host 10.0.0.2
 ```
 
+sync_media.env sample (for vision-player):
+- `media/_template/config/sample_sync_media.env`
+- copy to `space-vision-player/config/sync_media.env` and edit values
+
+Push from media-server using DHCP lease lookup:
+```
+VISION_ID=akiba_01 ./tools/push_media.sh
+```
+
 Options:
 - `--vision-id` (required)
 - `--config` (default: `media/<vision>/config/vision_config.json`)

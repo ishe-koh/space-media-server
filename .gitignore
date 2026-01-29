@@ -6,7 +6,14 @@
 /media/*/source/raw/*
 !/media/*/source/raw/.gitkeep
 
+# Local sync config (do not commit)
+/media/*/config/sync_media.env
+/media/*/config/push_media.env
+
 # Python
 __pycache__/
 *.pyc
 .venv/
+
+# Windows download metadata
+*:Zone.Identifier

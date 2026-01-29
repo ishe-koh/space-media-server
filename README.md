@@ -101,6 +101,19 @@ JSONC sample (with comments):
   - default filter: `loudnorm=I=-16:TP=-1.5:LRA=11`
 
 ## Usage
+### Daily workflow (short)
+1) Put media files into `media/<vision_id>/source/raw/` (optionally `raw/<weekday>`).
+2) Edit `media/<vision_id>/source/playlists/<weekday>.json`.
+3) Encode:
+```
+./tools/encode.py --vision-id <vision_id> --playlist ./media/<vision_id>/source/playlists/<weekday>.json
+```
+4) Push to player (DHCP lease lookup):
+```
+PLAYER_HOSTNAME=<player-hostname> VISION_ID=<vision_id> ./tools/push_media.sh
+```
+
+### Encode (single / all)
 Encode one playlist:
 ```
 ./tools/encode.py --vision-id akiba_01 --playlist ./media/akiba_01/source/playlists/always.json
@@ -109,6 +122,30 @@ Encode one playlist:
 Encode all playlists:
 ```
 ./tools/encode.py --vision-id akiba_01 --all
+```
+
+Tip: add a shell alias if you forget the command:
+```
+alias encode-akiba='cd /srv/space-media-server && ./tools/encode.py --vision-id akiba_01 --all'
+```
+
+### One-shot (encode + push)
+```
+VISION_ID=akiba_01 PLAYER_HOSTNAME=vision-player-akiba-01 ./tools/encode_and_push.sh
+```
+
+### How to run (copy/paste)
+1) Encode only:
+```
+VISION_ID=akiba_01 ./tools/encode.py --vision-id akiba_01 --all
+```
+2) Push only:
+```
+PLAYER_HOSTNAME=vision-player-akiba-01 VISION_ID=akiba_01 ./tools/push_media.sh
+```
+3) Encode + Push:
+```
+VISION_ID=akiba_01 PLAYER_HOSTNAME=vision-player-akiba-01 ./tools/encode_and_push.sh
 ```
 
 Initialize a new vision directory:
@@ -146,3 +183,33 @@ Options:
 ## Notes
 - media-server does **not** push; vision-player pulls via rsync.
 - Keep `media/<vision>/out` as deploy artifacts.
+
+## Raspberry Pi 5 setup checklist (media-server)
+Core:
+- OS: Debian/Raspberry Pi OS
+- Packages: `ffmpeg`, `rsync`, `openssh-server`
+- Repo location: `/srv/space-media-server` (or consistent path)
+- SSH keys: media-server -> vision-player (for push)
+
+Network (AP mode):
+- wlan0 as hotspot (hostapd + dnsmasq)
+- DHCP leases file: `/var/lib/misc/dnsmasq.leases`
+- Optional: DNSMasq DHCP range + gateway set correctly
+
+RTC / time:
+- RTC module configured (hwclock ok)
+- Timezone set
+
+Optional services:
+- Samba (for Windows drop-in of media files)
+- Cron/systemd timer for scheduled encode/push
+
+Vision-player runtime (Pi4):
+- `mpv` installed
+- Xorg + lightweight WM (e.g. `xserver-xorg`, `xinit`, `openbox`)
+- Without Xorg, mpv uses DRM full-screen and ignores geometry
+
+Sanity checks:
+- `./tools/encode.py` runs from repo root
+- `./tools/push_media.sh` can resolve hostname via leases
+- vision-player hostname is stable (no cloud-init overwrite)

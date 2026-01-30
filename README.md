@@ -20,27 +20,20 @@ source をエンコードして `output/` を作り、vision-player に配布す
 ```
 space-media-server/
 ├─ vision_players/
-│  ├─ sample_vision_player/    # full sample (mock)
-│  │  ├─ config/
-│  │  │  └─ vision_config.json
-│  │  ├─ source/
-│  │  │  ├─ media/             # source videos/images
-│  │  │  └─ playlists/         # server-side playlists
-│  │  └─ output/
-│  │     ├─ media/             # encoded media (rsync to player)
-│  │     └─ playlists/         # output playlists (rsync to player)
-│  └─ _template/
+│  └─ sample_vision_player/    # full sample (mock)
 │     ├─ config/
-│     └─ source/
-│        ├─ media/
-│        └─ playlists/
-├─ system_media/
-└─ tools/
-   ├─ encode.py
-   ├─ init_vision.py
-   ├─ emit_sync_env.py
-   ├─ push_media.sh
-   └─ encode_and_push.sh
+│     │  └─ vision_config.json
+│     ├─ source/
+│     │  ├─ media/             # source videos/images
+│     │  └─ playlists/         # server-side playlists
+│     │     ├─ always.json
+│     │     ├─ mon.json ... sun.json
+│     │     └─ sample.jsonc    # JSONC format guide
+│     └─ output/
+│        ├─ media/             # encoded media (rsync to player)
+│        └─ playlists/         # output playlists (rsync to player)
+├─ app/                        # python package (core logic)
+└─ bin/                        # CLI / scripts
 ```
 
 ## Raspberry Pi 5 setup (recommended)
@@ -81,8 +74,8 @@ sudo apt-get install -y \
 - items は `source` を使う
 - `auto_policy` でフォルダから自動生成も可能
 
-JSONC sample:
-- `vision_players/_template/source/playlists/sample.jsonc`
+JSONC guide:
+- `vision_players/sample_vision_player/source/playlists/sample.jsonc`
 
 ## Encoding policy
 - 画像は動画化（duration_sec）
@@ -90,6 +83,26 @@ JSONC sample:
 - audio_normalize で音量統一可
 
 ## Usage
+## Architecture (flow)
+High-level flow:
+```
+bin/encode.py
+  -> app/encoding_pipeline.py
+     -> app/config_loader.py (load vision_config.json)
+     -> app/layout_calc.py (compute lane rects)
+     -> ffmpeg (encode media)
+  -> writes output/media + output/playlists
+
+bin/push_media.sh
+  -> ssh (touch/remove state/media_updating.flag)
+  -> rsync output/media + output/playlists to vision-player
+  -> rsync uses --delete by default (stale files removed)
+
+bin/encode_and_push.sh
+  -> bin/encode.py
+  -> bin/push_media.sh
+```
+
 ### Daily workflow (short)
 1) 素材を置く
 ```
@@ -101,41 +114,45 @@ vision_players/<vision_id>/source/playlists/<weekday>.json
 ```
 3) Encode
 ```
-./tools/encode.py --vision-id <vision_id> --playlist ./vision_players/<vision_id>/source/playlists/<weekday>.json
+./bin/encode.py --vision-id <vision_id> --playlist ./vision_players/<vision_id>/source/playlists/<weekday>.json
 ```
 4) Push (DHCP lease lookup)
 ```
-PLAYER_HOSTNAME=<player-hostname> VISION_ID=<vision_id> ./tools/push_media.sh
+PLAYER_HOSTNAME=<player-hostname> VISION_ID=<vision_id> ./bin/push_media.sh
+```
+Hostname が見つからない場合は IP を指定:
+```
+PLAYER_IP={IP_ADDRESS} PLAYER_USER=pi VISION_ID=<vision_id> ./bin/push_media.sh
 ```
 
 ### Encode (single / all)
 ```
-./tools/encode.py --vision-id sample_vision_player --playlist ./vision_players/sample_vision_player/source/playlists/always.json
-./tools/encode.py --vision-id sample_vision_player --all
+./bin/encode.py --vision-id sample_vision_player --playlist ./vision_players/sample_vision_player/source/playlists/always.json
+./bin/encode.py --vision-id sample_vision_player --all
 ```
 
 Tip: add a shell alias if you forget the command:
 ```
-alias encode-sample='cd /srv/space-media-server && ./tools/encode.py --vision-id sample_vision_player --all'
+alias encode-sample='cd /srv/space-media-server && ./bin/encode.py --vision-id sample_vision_player --all'
 ```
 
 ### One-shot (encode + push)
 ```
-VISION_ID=sample_vision_player PLAYER_HOSTNAME=vision-player-akiba-01 ./tools/encode_and_push.sh
+VISION_ID=sample_vision_player PLAYER_HOSTNAME={PLAYER_HOSTNAME} ./bin/encode_and_push.sh
 ```
 
 ### How to run (copy/paste)
 1) Encode only:
 ```
-VISION_ID=sample_vision_player ./tools/encode.py --vision-id sample_vision_player --all
+VISION_ID=sample_vision_player ./bin/encode.py --vision-id sample_vision_player --all
 ```
 2) Push only:
 ```
-PLAYER_HOSTNAME=vision-player-akiba-01 VISION_ID=sample_vision_player ./tools/push_media.sh
+PLAYER_HOSTNAME={PLAYER_HOSTNAME} VISION_ID=sample_vision_player ./bin/push_media.sh
 ```
 3) Encode + Push:
 ```
-VISION_ID=sample_vision_player PLAYER_HOSTNAME=vision-player-akiba-01 ./tools/encode_and_push.sh
+VISION_ID=sample_vision_player PLAYER_HOSTNAME={PLAYER_HOSTNAME} ./bin/encode_and_push.sh
 ```
 
 ### Sync behavior (push)
@@ -146,6 +163,7 @@ VISION_ID=sample_vision_player PLAYER_HOSTNAME=vision-player-akiba-01 ./tools/en
 環境変数（push）:
 - `VISION_ID` (必須)
 - `PLAYER_HOSTNAME` (任意)
+- `PLAYER_IP` (任意・hostname 不在時のフォールバック)
 - `PLAYER_USER` (任意)
 - `REMOTE_BASE` (任意)
 - `MEDIA_ROOT` (任意)
@@ -158,4 +176,4 @@ VISION_ID=sample_vision_player PLAYER_HOSTNAME=vision-player-akiba-01 ./tools/en
 - vision-player 側は Xorg が無いと mpv が全画面になり geometry が効かない。
 
 ## References
-- playlist spec: `vision_players/_template/source/playlists/sample.jsonc`
+- playlist spec: `vision_players/sample_vision_player/source/playlists/sample.jsonc`

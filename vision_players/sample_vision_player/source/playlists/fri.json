@@ -4,6 +4,17 @@
     "default_loop": true,
     "default_start_offset_sec": 0
   },
+  "auto_policy": {
+    "directory": "media/fri",
+    "mode": "append_remaining",
+    "sort": "asc",
+    "extensions": [
+      ".mp4",
+      ".png",
+      ".jpg",
+      ".webm"
+    ]
+  },
   "lanes": {
     "lane0": {
       "lane_policy": {
@@ -58,16 +69,5 @@
         }
       ]
     }
-  },
-  "auto_policy": {
-    "directory": "media/mon",
-    "mode": "append_remaining",
-    "sort": "asc",
-    "extensions": [
-      ".mp4",
-      ".png",
-      ".jpg",
-      ".webm"
-    ]
   }
 }

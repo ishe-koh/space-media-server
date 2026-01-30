@@ -1,0 +1,18 @@
+[Unit]
+Description=space-media-server Web UI
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/space-media-server
+ExecStart=/usr/bin/python3 /srv/space-media-server/app/web_ui.py
+Environment=WEB_UI_HOST=127.0.0.1
+Environment=WEB_UI_PORT=8080
+User=deploy
+Group=deploy
+Environment=HOME=/home/deploy
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

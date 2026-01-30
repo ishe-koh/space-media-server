@@ -60,7 +60,7 @@
     }
   },
   "auto_policy": {
-    "directory": "media/mon",
+    "directory": "media/sat",
     "mode": "append_remaining",
     "sort": "asc",
     "extensions": [

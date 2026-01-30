@@ -1,15 +1,16 @@
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from space_media_server.config import LanePolicy, VisionConfig, load_vision_config
-from space_media_server.rect import Rect, calc_lane_rects
+from app.config_loader import LanePolicy, VisionConfig, load_vision_config
+from app.layout_calc import Rect, calc_lane_rects
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".mkv"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mpg", ".mpeg"}
 
 
 @dataclass(frozen=True)
@@ -227,13 +228,24 @@ def _build_encode_items(
         lane_dir = encoded_dir / weekday / lane_id
         lane_dir.mkdir(parents=True, exist_ok=True)
 
+        auto_index = 900
         for index, item in enumerate(lane_items, start=1):
             source_path, duration, extra, policy_override = _parse_item(item, source_root)
             is_image = _is_image(source_path)
 
             stem = source_path.stem
             suffix = ".mp4"
-            output_name = f"{index:03d}_{stem}{suffix}"
+            match = re.match(r"^([0-9]+)[-_ ]*(.*)$", stem)
+            if match:
+                num = int(match.group(1))
+                rest = match.group(2)
+                if rest:
+                    output_name = f"{num:03d}_{rest}{suffix}"
+                else:
+                    output_name = f"{num:03d}{suffix}"
+            else:
+                output_name = f"{auto_index:03d}_{stem}{suffix}"
+                auto_index += 1
             output_path = lane_dir / output_name
 
             items_out.append(
@@ -342,6 +354,16 @@ def build_encode_plan(
     with playlist_path.open("r", encoding="utf-8") as f:
         playlist = json.load(f)
 
+    lane_count = config.lanes.cols * config.lanes.rows
+    expected_lane_ids = [f"lane{i}" for i in range(lane_count)]
+    lanes = playlist.get("lanes", {})
+    if not isinstance(lanes, dict):
+        raise ValueError("playlist.lanes must be an object")
+    normalized_lanes = {}
+    for lane_id in expected_lane_ids:
+        normalized_lanes[lane_id] = lanes.get(lane_id, {"items": []})
+    playlist["lanes"] = normalized_lanes
+
     resolved_weekday = weekday or playlist_path.stem
 
     # Embed screen info to keep player stateless
@@ -434,6 +456,17 @@ def encode_playlist(
         playlists_dir=playlists_dir,
         weekday=weekday,
     )
+    print(f"[encode] playlist: {playlist_path}")
+    print(f"[encode] output playlist: {plan.playlist_out}")
+    print(f"[encode] items: {len(plan.items)}")
+    items_by_lane: Dict[str, List[EncodeItem]] = {}
+    for item in plan.items:
+        lane_id = item.output_path.parent.name
+        items_by_lane.setdefault(lane_id, []).append(item)
+    for lane_id in sorted(items_by_lane.keys()):
+        print(f"[encode] lane {lane_id} ({len(items_by_lane[lane_id])})")
+        for item in items_by_lane[lane_id]:
+            print(f"[encode]   {item.source_path.name} -> {item.output_path.name}")
     encode_plan(
         plan=plan,
         config=config,

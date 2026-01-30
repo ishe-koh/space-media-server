@@ -1,0 +1,96 @@
+// Sample server-side playlist (JSONC)
+// This file is intentionally verbose to explain each option.
+// Copy this into <weekday>.json and trim as needed.
+
+{
+  // ------------------------------------------------------------------
+  // meta: defaults used when a lane does not specify values.
+  // ------------------------------------------------------------------
+  "meta": {
+    "default_volume": 100,            // mpv volume (0-100)
+    "default_loop": true,             // loop playlist
+    "default_start_offset_sec": 0     // delay before starting playback
+  },
+
+  // ------------------------------------------------------------------
+  // screen: optional override for player layout.
+  // If omitted, vision_config.json is used by the player.
+  // NOTE: media-server embeds this into output playlists automatically.
+  // ------------------------------------------------------------------
+  // "screen": {
+  //   "width": 1280,
+  //   "height": 256,
+  //   "cols": 3,
+  //   "rows": 1
+  // },
+
+  // ------------------------------------------------------------------
+  // auto_policy: server-side auto listing of files in a folder.
+  // directory is relative to vision_players/<id>/source/.
+  // For weekday playlists, set media/<weekday> (ex: media/mon).
+  // In this repo's sample playlists, auto_policy is ON by default.
+  // - replace_if_empty: use auto items only if items is empty
+  // - append_remaining: keep items + add files not listed
+  // - disabled: ignore auto items
+  // ------------------------------------------------------------------
+  "auto_policy": {
+    "directory": "media/always",
+    "mode": "replace_if_empty",
+    "sort": "asc",
+    "extensions": [".mp4", ".png", ".jpg",
+          ".webm"]
+  },
+
+  // ------------------------------------------------------------------
+  // lanes: each lane becomes one mpv process.
+  // Lane order follows JSON order (lane0, lane1, ...).
+  // ------------------------------------------------------------------
+  "lanes": {
+    "lane0": {
+      // lane_policy: default placement for items in this lane
+      // fill:
+      // - contain: keep aspect, pad with black
+      // - cover: crop to fill
+      // - stretch: ignore aspect
+      // anchor: 9-grid placement (top_left, top, top_right, left, center,
+      //         right, bottom_left, bottom, bottom_right)
+      "lane_policy": {
+        "fill": "contain",
+        "anchor": "center"
+      },
+
+      // Lane-level overrides (optional)
+      "volume": 80,
+      "loop": true,
+      "start_offset_sec": 0,
+
+      "items": [
+        // Item as a string
+        "media/always/sample_video_01.mp4",
+
+        // Item as an object (recommended when using duration/policy)
+        {
+          "source": "media/always/sample_image_01.png",
+          "duration_sec": 12,
+          "policy": { "anchor": "top_left" }
+        },
+
+        // Item with availability window (timezone required)
+        {
+          "source": "media/always/sample_video_02.mp4",
+          "is_available_from": "2026-01-01T00:00:00+09:00",
+          "is_available_until": "2026-12-31T23:59:59+09:00"
+        }
+      ]
+    },
+
+    "lane1": {
+      // Per-lane auto_policy overrides top-level
+      "auto_policy": {
+        "directory": "media/lane1",
+        "mode": "append_remaining"
+      },
+      "items": []
+    }
+  }
+}

@@ -5,9 +5,9 @@ from pathlib import Path
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Initialize a new vision directory from template")
+    parser = argparse.ArgumentParser(description="Initialize a new vision directory from sample template")
     parser.add_argument("vision_id", type=str, help="new vision id (ex: akiba_01)")
-    parser.add_argument("--template", type=Path, default=Path("./vision_players/_template"))
+    parser.add_argument("--template", type=Path, default=Path("./vision_players/sample_vision_player"))
     parser.add_argument("--media-root", type=Path, default=Path("./vision_players"))
     parser.add_argument("--force", action="store_true", help="overwrite existing vision directory")
     return parser.parse_args()

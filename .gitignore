@@ -2,13 +2,10 @@
 /vision_players/*/output/
 /system_media/*.mp4
 
-# Inputs (example vision)
-/vision_players/*/source/media/*
-!/vision_players/*/source/media/.gitkeep
-
 # Local sync config (do not commit)
 /vision_players/*/config/sync_media.env
 /vision_players/*/config/push_media.env
+/config/known_targets.json
 
 # Python
 __pycache__/
@@ -17,3 +14,17 @@ __pycache__/
 
 # Windows download metadata
 *:Zone.Identifier
+# Source media folders (keep dirs, ignore files)
+/vision_players/*/source/media/always/*
+/vision_players/*/source/media/mon/*
+/vision_players/*/source/media/tue/*
+/vision_players/*/source/media/wed/*
+/vision_players/*/source/media/thu/*
+/vision_players/*/source/media/fri/*
+/vision_players/*/source/media/sat/*
+/vision_players/*/source/media/sun/*
+!/vision_players/*/source/media/*/.gitkeep
+# Track sample media in the sample vision (only)
+!/vision_players/sample_vision_player/source/media/always/sample_*.mp4
+!/vision_players/sample_vision_player/source/media/always/sample_*.jpg
+!/vision_players/sample_vision_player/source/media/always/sample_*.png

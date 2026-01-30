@@ -14,7 +14,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    remote_base = args.repo_path / "media" / args.vision_id / "out"
+    remote_base = args.repo_path / "vision_players" / args.vision_id / "output"
 
     print(f"REMOTE_USER={args.remote_user}")
     print(f"REMOTE_HOST={args.remote_host}")

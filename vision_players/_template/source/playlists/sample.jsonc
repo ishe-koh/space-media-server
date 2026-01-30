@@ -11,7 +11,7 @@
 
   // If a lane has no items, include files from this folder
   "auto_policy": {
-    "directory": "raw/always",
+    "directory": "media/always",
     "mode": "replace_if_empty",
     "sort": "asc",
     "extensions": [".mp4", ".png", ".jpg"]
@@ -25,9 +25,9 @@
         "anchor": "top_left"
       },
       "items": [
-        {"source": "raw/movie_a.mp4"},
+        {"source": "media/movie_a.mp4"},
         {
-          "source": "raw/poster_a.png",
+          "source": "media/poster_a.png",
           "duration_sec": 12,
           "policy": {"anchor": "center"}
         }
@@ -37,7 +37,7 @@
     "lane1": {
       // You can override auto_policy per lane
       "auto_policy": {
-        "directory": "raw/lane1",
+        "directory": "media/lane1",
         "mode": "append_remaining"
       },
       "items": []

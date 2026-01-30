@@ -13,7 +13,7 @@ from space_media_server.encoder import encode_playlist
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Encode source playlists for vision-player")
-    parser.add_argument("--vision-id", type=str, required=True, help="vision id (ex: akiba_01)")
+    parser.add_argument("--vision-id", type=str, required=True, help="vision id (ex: sample_vision_player)")
     parser.add_argument("--playlist", type=Path, help="source playlist JSON path")
     parser.add_argument("--all", action="store_true", help="encode all playlists in media/<vision>/source/playlists")
     parser.add_argument("--config", type=Path, help="override config path (default: media/<vision>/config/vision_config.json)")
@@ -28,12 +28,12 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _resolve_paths(args: argparse.Namespace) -> dict:
-    base_dir = Path("./media") / args.vision_id
+    base_dir = Path("./vision_players") / args.vision_id
     return {
         "config": args.config or (base_dir / "config" / "vision_config.json"),
         "source_root": args.source_root or (base_dir / "source"),
-        "encoded_dir": args.encoded_dir or (base_dir / "out" / "encoded"),
-        "playlists_dir": args.playlists_dir or (base_dir / "out" / "playlists"),
+        "encoded_dir": args.encoded_dir or (base_dir / "output" / "media"),
+        "playlists_dir": args.playlists_dir or (base_dir / "output" / "playlists"),
     }
 
 

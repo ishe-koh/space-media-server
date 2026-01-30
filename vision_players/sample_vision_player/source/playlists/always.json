@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "default_volume": 100,
+    "default_loop": true,
+    "default_start_offset_sec": 0
+  },
+  "lanes": {
+    "lane0": {
+      "lane_policy": {
+        "fill": "contain",
+        "anchor": "center"
+      },
+      "items": [
+        {"source": "media/endroll_30sec_cm_master3.mp4"},
+        {"source": "media/1080x360.jpg", "duration_sec": 12},
+        {"source": "media/【FIX】キュアメイドカフェCM_通常ロゴ_volnormalize.mp4"}
+      ]
+    },
+    "lane1": {
+      "lane_policy": {
+        "fill": "contain",
+        "anchor": "center"
+      },
+      "items": [
+        {"source": "media/【0917FIX】MIX30sec.mp4"},
+        {"source": "media/5d063accdbb943e2a8713cf1ddb7ca32_wallpaper_20210614_001108.png", "duration_sec": 12},
+        {"source": "media/独白_CM.mp4"}
+      ]
+    },
+    "lane2": {
+      "lane_policy": {
+        "fill": "contain",
+        "anchor": "center"
+      },
+      "items": [
+        {"source": "media/透明_30sec_告知.mp4"},
+        {"source": "media/_0GCDLE3_400x400.jpg", "duration_sec": 12}
+      ]
+    }
+  }
+}

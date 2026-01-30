@@ -11,6 +11,7 @@ set -euo pipefail
 #   LEASES_FILE=/var/lib/misc/dnsmasq.leases
 #   RSYNC_OPTS="-az --size-only"
 #   RSYNC_DELETE=1
+#   CLEAN_OUTPUT=1   # default: 1 (remove out/encoded & out/playlists before encode)
 
 VISION_ID="${VISION_ID:-}"
 if [[ -z "${VISION_ID}" ]]; then
@@ -22,7 +23,13 @@ PLAYER_HOSTNAME="${PLAYER_HOSTNAME:-${VISION_ID}}"
 PLAYER_USER="${PLAYER_USER:-ishii}"
 MEDIA_ROOT="${MEDIA_ROOT:-$(pwd)}"
 LEASES_FILE="${LEASES_FILE:-/var/lib/misc/dnsmasq.leases}"
-PLAYLIST="${PLAYLIST:-${MEDIA_ROOT}/media/${VISION_ID}/source/playlists/always.json}"
+PLAYLIST="${PLAYLIST:-${MEDIA_ROOT}/vision_players/${VISION_ID}/source/playlists/always.json}"
+CLEAN_OUTPUT="${CLEAN_OUTPUT:-1}"
+
+if [[ "${CLEAN_OUTPUT}" == "1" ]]; then
+  OUT_DIR="${MEDIA_ROOT}/vision_players/${VISION_ID}/output"
+  rm -rf "${OUT_DIR}/media" "${OUT_DIR}/playlists"
+fi
 
 ./tools/encode.py --vision-id "${VISION_ID}" --playlist "${PLAYLIST}"
 

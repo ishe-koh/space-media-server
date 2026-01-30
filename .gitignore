@@ -1,14 +1,14 @@
 # Generated outputs
-/media/*/out/
+/vision_players/*/output/
 /system_media/*.mp4
 
 # Inputs (example vision)
-/media/*/source/raw/*
-!/media/*/source/raw/.gitkeep
+/vision_players/*/source/media/*
+!/vision_players/*/source/media/.gitkeep
 
 # Local sync config (do not commit)
-/media/*/config/sync_media.env
-/media/*/config/push_media.env
+/vision_players/*/config/sync_media.env
+/vision_players/*/config/push_media.env
 
 # Python
 __pycache__/

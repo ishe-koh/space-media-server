@@ -14,6 +14,7 @@ set -euo pipefail
 #   LEASES_FILE=/var/lib/misc/dnsmasq.leases
 #   RSYNC_OPTS="-az --size-only"
 #   RSYNC_DELETE=1   # default: 1 (delete removed files)
+#   PUSH_WEEKDAY=mon # when set, only sync that weekday (media dir + playlist file)
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VISION_ID="${VISION_ID:-}"
@@ -124,6 +125,7 @@ REMOTE_STATE_DIR="${REMOTE_PLAYER_ROOT}/state"
 REMOTE_FLAG_PATH="${REMOTE_STATE_DIR}/media_updating.flag"
 REMOTE_MEDIA_DIR="${REMOTE_OUTPUT_DIR}/media"
 REMOTE_PLAYLISTS_DIR="${REMOTE_OUTPUT_DIR}/playlists"
+PUSH_WEEKDAY="${PUSH_WEEKDAY:-}"
 
 echo "[push] target ${PLAYER_USER}@${PLAYER_IP} (${PLAYER_HOSTNAME})"
 
@@ -137,15 +139,49 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[push] syncing output/media..."
-${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_MEDIA_DIR}'"
-rsync ${RSYNC_OPTS} -e "${RSYNC_SSH}" \
-  "${OUTPUT_MEDIA_DIR}/" "${REMOTE_HOST}:${REMOTE_MEDIA_DIR}/"
+if [[ -n "${PUSH_WEEKDAY}" ]]; then
+  LOCAL_WEEKDAY_MEDIA_DIR="${OUTPUT_MEDIA_DIR}/${PUSH_WEEKDAY}"
+  LOCAL_WEEKDAY_PLAYLIST="${OUTPUT_PLAYLISTS_DIR}/${PUSH_WEEKDAY}.json"
+  REMOTE_WEEKDAY_MEDIA_DIR="${REMOTE_MEDIA_DIR}/${PUSH_WEEKDAY}"
+  REMOTE_WEEKDAY_PLAYLIST="${REMOTE_PLAYLISTS_DIR}/${PUSH_WEEKDAY}.json"
+  WEEKDAY_RSYNC_OPTS="${RSYNC_OPTS}"
+  if [[ "${WEEKDAY_RSYNC_OPTS}" != *"--delete"* ]]; then
+    WEEKDAY_RSYNC_OPTS="${WEEKDAY_RSYNC_OPTS} --delete"
+  fi
 
-echo "[push] syncing output/playlists..."
-${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_PLAYLISTS_DIR}'"
-rsync ${RSYNC_OPTS} -e "${RSYNC_SSH}" \
-  "${OUTPUT_PLAYLISTS_DIR}/" "${REMOTE_HOST}:${REMOTE_PLAYLISTS_DIR}/"
+  if [[ ! -f "${LOCAL_WEEKDAY_PLAYLIST}" ]]; then
+    echo "weekday playlist not found: ${LOCAL_WEEKDAY_PLAYLIST}" >&2
+    exit 1
+  fi
+
+  echo "[push] syncing output/media (${PUSH_WEEKDAY})..."
+  ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_WEEKDAY_MEDIA_DIR}'"
+  if [[ -d "${LOCAL_WEEKDAY_MEDIA_DIR}" ]]; then
+    rsync ${WEEKDAY_RSYNC_OPTS} -e "${RSYNC_SSH}" \
+      "${LOCAL_WEEKDAY_MEDIA_DIR}/" "${REMOTE_HOST}:${REMOTE_WEEKDAY_MEDIA_DIR}/"
+  else
+    echo "[push] weekday media dir missing, clearing remote (${PUSH_WEEKDAY})..."
+    tmp_dir="$(mktemp -d)"
+    rsync ${WEEKDAY_RSYNC_OPTS} -e "${RSYNC_SSH}" \
+      "${tmp_dir}/" "${REMOTE_HOST}:${REMOTE_WEEKDAY_MEDIA_DIR}/"
+    rmdir "${tmp_dir}"
+  fi
+
+  echo "[push] syncing output/playlists (${PUSH_WEEKDAY})..."
+  ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_PLAYLISTS_DIR}'"
+  rsync -az -e "${RSYNC_SSH}" \
+    "${LOCAL_WEEKDAY_PLAYLIST}" "${REMOTE_HOST}:${REMOTE_WEEKDAY_PLAYLIST}"
+else
+  echo "[push] syncing output/media..."
+  ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_MEDIA_DIR}'"
+  rsync ${RSYNC_OPTS} -e "${RSYNC_SSH}" \
+    "${OUTPUT_MEDIA_DIR}/" "${REMOTE_HOST}:${REMOTE_MEDIA_DIR}/"
+
+  echo "[push] syncing output/playlists..."
+  ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_PLAYLISTS_DIR}'"
+  rsync ${RSYNC_OPTS} -e "${RSYNC_SSH}" \
+    "${OUTPUT_PLAYLISTS_DIR}/" "${REMOTE_HOST}:${REMOTE_PLAYLISTS_DIR}/"
+fi
 
 echo "[push] restart space-vision-player..."
 ${SSH_CMD} "${REMOTE_HOST}" "sudo -n systemctl restart space-vision-player"

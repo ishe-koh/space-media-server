@@ -12,7 +12,8 @@ set -euo pipefail
 #   PLAYER_IP=192.168.1.1
 #   RSYNC_OPTS="-az --size-only"
 #   RSYNC_DELETE=1
-#   CLEAN_OUTPUT=1   # default: 1 (remove output/media & output/playlists before encode)
+#   CLEAN_OUTPUT=1   # default: 1 (remove output before encode)
+#   - when PLAYLIST is set, only that weekday output is cleared/synced
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -49,10 +50,23 @@ REPO_ROOT="${REPO_ROOT:-${MEDIA_ROOT:-${REPO_ROOT}}}"
 LEASES_FILE="${LEASES_FILE:-/var/lib/misc/dnsmasq.leases}"
 PLAYLIST="${PLAYLIST:-}"
 CLEAN_OUTPUT="${CLEAN_OUTPUT:-1}"
+PUSH_WEEKDAY=""
+if [[ -n "${PLAYLIST}" ]]; then
+  playlist_base="$(basename "${PLAYLIST}")"
+  playlist_weekday="${playlist_base%.json}"
+  if [[ "${playlist_weekday}" =~ ^(always|mon|tue|wed|thu|fri|sat|sun)$ ]]; then
+    PUSH_WEEKDAY="${playlist_weekday}"
+  fi
+fi
 
 if [[ "${CLEAN_OUTPUT}" == "1" && -n "${VISION_ID}" ]]; then
   OUT_DIR="${REPO_ROOT}/vision_players/${VISION_ID}/output"
-  rm -rf "${OUT_DIR}/media" "${OUT_DIR}/playlists"
+  if [[ -n "${PUSH_WEEKDAY}" ]]; then
+    rm -rf "${OUT_DIR}/media/${PUSH_WEEKDAY}"
+    rm -f "${OUT_DIR}/playlists/${PUSH_WEEKDAY}.json"
+  else
+    rm -rf "${OUT_DIR}/media" "${OUT_DIR}/playlists"
+  fi
 fi
 
 if [[ -n "${VISION_ID}" ]]; then
@@ -81,6 +95,7 @@ REPO_ROOT="${REPO_ROOT}" \
 LEASES_FILE="${LEASES_FILE}" \
 RSYNC_OPTS="${RSYNC_OPTS:-}" \
 RSYNC_DELETE="${RSYNC_DELETE:-1}" \
+PUSH_WEEKDAY="${PUSH_WEEKDAY}" \
 VISION_ID="${VISION_ID}" \
 ./bin/push_media.sh
 echo "[encode_and_push] done"

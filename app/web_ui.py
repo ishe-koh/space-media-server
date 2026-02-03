@@ -4,6 +4,9 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -16,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 VISION_ROOT = REPO_ROOT / "vision_players"
 LEASES_FILE = Path(os.environ.get("LEASES_FILE", "/var/lib/misc/dnsmasq.leases"))
 KNOWN_TARGETS_FILE = REPO_ROOT / "config" / "known_targets.json"
+JOBS_DIR = REPO_ROOT / "state" / "web_ui_jobs"
 
 from app.web.known_targets import (
     is_ip,
@@ -50,12 +54,87 @@ def _parse_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes", "y", "on")
 
 
+def _ensure_jobs_dir() -> Path:
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    return JOBS_DIR
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _job_paths(job_id: str) -> dict[str, Path]:
+    base = _ensure_jobs_dir() / job_id
+    return {
+        "base": base,
+        "stdout": base / "stdout.log",
+        "stderr": base / "stderr.log",
+        "meta": base / "meta.json",
+    }
+
+
+def _start_job(command: list[str], env: dict[str, str], cwd: Path, meta: dict) -> str:
+    job_id = uuid.uuid4().hex
+    paths = _job_paths(job_id)
+    paths["base"].mkdir(parents=True, exist_ok=True)
+
+    out_f = paths["stdout"].open("w", encoding="utf-8")
+    err_f = paths["stderr"].open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+        command,
+        cwd=str(cwd),
+        env=env,
+        stdout=out_f,
+        stderr=err_f,
+        text=True,
+    )
+
+    meta = {
+        **meta,
+        "job_id": job_id,
+        "pid": proc.pid,
+        "start_time": time.time(),
+        "status": "running",
+    }
+    _write_json(paths["meta"], meta)
+
+    def _wait_and_record() -> None:
+        rc = proc.wait()
+        out_f.close()
+        err_f.close()
+        meta["returncode"] = rc
+        meta["end_time"] = time.time()
+        meta["status"] = "ok" if rc == 0 else "err"
+        _write_json(paths["meta"], meta)
+
+    threading.Thread(target=_wait_and_record, daemon=True).start()
+    return job_id
+
+
+def _tail_text(path: Path, max_bytes: int = 40000) -> str:
+    if not path.exists():
+        return ""
+    data = path.read_bytes()
+    if len(data) > max_bytes:
+        data = data[-max_bytes:]
+    return data.decode("utf-8", errors="ignore")
+
+
+def _job_running(meta: dict) -> bool:
+    pid = meta.get("pid")
+    if not isinstance(pid, int):
+        return False
+    return Path(f"/proc/{pid}").exists()
+
+
 class Handler(BaseHTTPRequestHandler):
-    def _html(self, body: str, status: int = 200) -> None:
+    def _html(self, body: str, status: int = 200, refresh_sec: int | None = None) -> None:
+        refresh_tag = f'<meta http-equiv="refresh" content="{refresh_sec}">' if refresh_sec else ""
         content = f"""<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
+    {refresh_tag}
     <title>space-media-server</title>
     <style>
       body {{ font-family: sans-serif; margin: 16px; }}
@@ -83,6 +162,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/job":
+            self.do_GET_job(parse_qs(parsed.query))
+            return
         if parsed.path == "/delete_media":
             self.do_GET_delete(parse_qs(parsed.query))
             return
@@ -375,6 +457,34 @@ class Handler(BaseHTTPRequestHandler):
 """
         self._html(body)
 
+    def do_GET_job(self, query: dict[str, list[str]]) -> None:
+        job_id = query.get("job_id", [""])[0]
+        if not job_id:
+            self._html("<p class='err'>missing job_id</p>", status=400)
+            return
+        paths = _job_paths(job_id)
+        if not paths["meta"].exists():
+            self._html("<p class='err'>job not found</p>", status=404)
+            return
+        meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
+        running = _job_running(meta)
+        stdout = _tail_text(paths["stdout"])
+        stderr = _tail_text(paths["stderr"])
+        status = "ok" if meta.get("status") == "ok" else "err"
+        if running:
+            status = "ok"
+        body = f"""
+<h1>encode_and_push</h1>
+<p>Status: <span class="{status}">{html.escape(meta.get('status','running'))}</span></p>
+<p>VISION_ID: {html.escape(str(meta.get('vision_id','')))}</p>
+<p>Weekday: {html.escape(str(meta.get('weekday','')))}</p>
+<pre class="mono">{html.escape(stdout)}</pre>
+<pre class="mono">{html.escape(stderr)}</pre>
+<p><a href="/">back</a></p>
+"""
+        refresh = 3 if running else None
+        self._html(body, status=200, refresh_sec=refresh)
+
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length)
@@ -403,22 +513,21 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 env["PLAYLIST"] = f"source/playlists/{weekday}.json"
 
-            proc = subprocess.run(
+            meta = {
+                "vision_id": vision_id,
+                "weekday": weekday,
+                "target": target or "",
+                "player_user": player_user or "",
+            }
+            job_id = _start_job(
                 [str(REPO_ROOT / "bin" / "encode_and_push.sh")],
-                cwd=str(REPO_ROOT),
                 env=env,
-                capture_output=True,
-                text=True,
+                cwd=REPO_ROOT,
+                meta=meta,
             )
-            status = "ok" if proc.returncode == 0 else "err"
-            body = f"""
-<h1>encode_and_push</h1>
-<p class="{status}">exit code: {proc.returncode}</p>
-<pre class="mono">{html.escape(proc.stdout)}</pre>
-<pre class="mono">{html.escape(proc.stderr)}</pre>
-<p><a href="/">back</a></p>
-"""
-            self._html(body, status=200)
+            self.send_response(302)
+            self.send_header("Location", f"/job?job_id={job_id}")
+            self.end_headers()
             return
 
         if self.path == "/save_target":

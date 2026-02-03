@@ -15,6 +15,7 @@ source をエンコードして `output/` を作り、vision-player に配布す
 - ffmpeg
 - rsync
 - openssh-server
+- smbd
 
 ## Directory layout
 ```

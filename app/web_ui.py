@@ -214,18 +214,19 @@ class Handler(BaseHTTPRequestHandler):
             for t in known_targets
         ) or "<li class='mono'>(no known targets)</li>"
         weekdays = ["always", "mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-        upload_dirs = weekdays + ["is_limited"]
+        upload_dir_choices = [(w, w) for w in weekdays] + [("is_limited", "limited")]
         weekday_opts = "\n".join(
             f"<option value='{w}' {'selected' if w == selected_weekday else ''}>{w}</option>"
             for w in weekdays
         )
         media_dirs = list_media_dirs(VISION_ROOT, selected_vision) if selected_vision else {}
         selected_upload_dir = query.get("media_dir", [selected_weekday])[0]
-        if selected_upload_dir not in upload_dirs:
+        valid_upload_values = [value for value, _label in upload_dir_choices]
+        if selected_upload_dir not in valid_upload_values:
             selected_upload_dir = "always"
         upload_dir_opts = "\n".join(
-            f"<option value='{html.escape(d)}' {'selected' if d == selected_upload_dir else ''}>{html.escape(d)}</option>"
-            for d in upload_dirs
+            f"<option value='{html.escape(value)}' {'selected' if value == selected_upload_dir else ''}>{html.escape(label)}</option>"
+            for value, label in upload_dir_choices
         )
         media_list_sections = []
         for weekday, files in media_dirs.items():

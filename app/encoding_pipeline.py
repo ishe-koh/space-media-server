@@ -195,6 +195,27 @@ def _parse_item(
     raise ValueError("item must be string or object")
 
 
+def _build_output_name(source_path: Path, auto_index: int) -> tuple[str, int]:
+    stem = source_path.stem
+    suffix = ".mp4"
+    match = re.match(r"^([0-9]+)[-_ ]*(.*)$", stem)
+    if match:
+        num = int(match.group(1))
+        rest = match.group(2)
+        if rest:
+            return f"{num:03d}_{rest}{suffix}", auto_index
+        return f"{num:03d}{suffix}", auto_index
+    return f"{auto_index:03d}_{stem}{suffix}", auto_index + 1
+
+
+def _map_auto_directory_for_output(directory: str, lane_id: str) -> Path:
+    rel_dir = Path(directory)
+    parts = rel_dir.parts
+    if parts and parts[0] == "media":
+        rel_dir = Path(*parts[1:]) if len(parts) > 1 else Path()
+    return rel_dir / lane_id
+
+
 def _build_encode_items(
     playlist: Dict,
     source_root: Path,
@@ -204,8 +225,10 @@ def _build_encode_items(
     lanes = playlist.get("lanes", {})
     auto_policy = playlist.get("auto_policy", {})
     output_playlist = dict(playlist)
+    output_playlist.pop("auto_policy", None)
     output_lanes: Dict[str, Dict] = {}
     items_out: List[EncodeItem] = []
+    seen_output_paths: set[Path] = set()
 
     for lane_id, lane_conf in lanes.items():
         lane_items = lane_conf.get("items") or []
@@ -227,40 +250,40 @@ def _build_encode_items(
 
         lane_dir = encoded_dir / weekday / lane_id
         lane_dir.mkdir(parents=True, exist_ok=True)
+        fallback_dir_rel: Optional[Path] = None
+        if lane_auto_policy and auto_mode != "disabled":
+            directory = lane_auto_policy.get("directory")
+            if isinstance(directory, str) and directory:
+                fallback_dir_rel = _map_auto_directory_for_output(directory, lane_id)
+                output_lane["auto_policy"] = {
+                    **lane_auto_policy,
+                    "directory": str(fallback_dir_rel),
+                }
+        else:
+            output_lane.pop("auto_policy", None)
 
         auto_index = 900
         for index, item in enumerate(lane_items, start=1):
             source_path, duration, extra, policy_override = _parse_item(item, source_root)
             is_image = _is_image(source_path)
-
-            stem = source_path.stem
-            suffix = ".mp4"
-            match = re.match(r"^([0-9]+)[-_ ]*(.*)$", stem)
-            if match:
-                num = int(match.group(1))
-                rest = match.group(2)
-                if rest:
-                    output_name = f"{num:03d}_{rest}{suffix}"
-                else:
-                    output_name = f"{num:03d}{suffix}"
-            else:
-                output_name = f"{auto_index:03d}_{stem}{suffix}"
-                auto_index += 1
+            output_name, auto_index = _build_output_name(source_path, auto_index)
             output_path = lane_dir / output_name
 
-            items_out.append(
-                EncodeItem(
-                    source_path=source_path,
-                    output_path=output_path,
-                    is_image=is_image,
-                    duration_sec=duration,
-                    extra_fields=extra,
-                    policy_override={
-                        **lane_policy_override,
-                        **policy_override,
-                    },
+            if output_path not in seen_output_paths:
+                items_out.append(
+                    EncodeItem(
+                        source_path=source_path,
+                        output_path=output_path,
+                        is_image=is_image,
+                        duration_sec=duration,
+                        extra_fields=extra,
+                        policy_override={
+                            **lane_policy_override,
+                            **policy_override,
+                        },
+                    )
                 )
-            )
+                seen_output_paths.add(output_path)
 
             # Build playlist item for vision-player
             rel_path = output_path.relative_to(encoded_dir)
@@ -270,6 +293,32 @@ def _build_encode_items(
                 output_items.append(output_item)
             else:
                 output_items.append(str(rel_path))
+
+        if fallback_dir_rel is not None:
+            fallback_dir = encoded_dir / fallback_dir_rel
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            fallback_auto_index = 900
+            for item in auto_items:
+                source_path, duration, extra, policy_override = _parse_item(item, source_root)
+                is_image = _is_image(source_path)
+                output_name, fallback_auto_index = _build_output_name(source_path, fallback_auto_index)
+                output_path = fallback_dir / output_name
+                if output_path in seen_output_paths:
+                    continue
+                items_out.append(
+                    EncodeItem(
+                        source_path=source_path,
+                        output_path=output_path,
+                        is_image=is_image,
+                        duration_sec=duration,
+                        extra_fields=extra,
+                        policy_override={
+                            **lane_policy_override,
+                            **policy_override,
+                        },
+                    )
+                )
+                seen_output_paths.add(output_path)
 
         output_lane["items"] = output_items
         output_lanes[lane_id] = output_lane

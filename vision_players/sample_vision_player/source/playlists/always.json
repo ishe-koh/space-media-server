@@ -5,69 +5,32 @@
     "default_start_offset_sec": 0
   },
   "lanes": {
-    "lane0": {
-      "lane_policy": {
-        "fill": "contain",
-        "anchor": "center"
-      },
-      "items": [
-        {
-          "source": "media/always/sample_video_01.mp4"
-        },
-        {
-          "source": "media/always/sample_image_01.jpg",
-      ".webm",
-          "duration_sec": 12
-        },
-        {
-          "source": "media/always/sample_video_02.mp4"
-        }
-      ]
-    },
-    "lane1": {
-      "lane_policy": {
-        "fill": "contain",
-        "anchor": "center"
-      },
-      "items": [
-        {
-          "source": "media/always/sample_video_03.mp4"
-        },
-        {
-          "source": "media/always/sample_image_02.png",
-          "duration_sec": 12
-        },
-        {
-          "source": "media/always/sample_video_04.mp4"
-        }
-      ]
-    },
-    "lane2": {
-      "lane_policy": {
-        "fill": "contain",
-        "anchor": "center"
-      },
-      "items": [
-        {
-          "source": "media/always/sample_video_05.mp4"
-        },
-        {
-          "source": "media/always/sample_image_03.jpg",
-      ".webm",
-          "duration_sec": 12
-        }
-      ]
+    "lane0": {}
+  },
+  "active_time": {
+    "always": {
+      "from": "10:00",
+      "until": "20:00"
     }
   },
   "auto_policy": {
     "directory": "media/always",
-    "mode": "append_remaining",
     "sort": "asc",
+    "mode": "append_remaining",
     "extensions": [
       ".mp4",
+      ".mov",
+      ".m4v",
+      ".mkv",
+      ".webm",
+      ".avi",
+      ".mpg",
+      ".mpeg",
       ".png",
       ".jpg",
-      ".webm"
+      ".jpeg",
+      ".bmp",
+      ".webp"
     ]
   }
 }

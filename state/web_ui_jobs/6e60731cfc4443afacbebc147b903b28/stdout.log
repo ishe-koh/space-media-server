@@ -1,0 +1,40 @@
+[encode_and_push] encode start (vision_id=sample_vision_player, playlist=source/playlists/always.json)
+[encode] vision_id=sample_vision_player
+[encode] playlist=/home/kouhei_ishii/entas-media-server-and-vision-player/space-media-server/vision_players/sample_vision_player/source/playlists/always.json
+[encode] playlist: /home/kouhei_ishii/entas-media-server-and-vision-player/space-media-server/vision_players/sample_vision_player/source/playlists/always.json
+[encode] output playlist: vision_players/sample_vision_player/output/playlists/always.json
+[encode] items: 30
+[encode] lane lane0 (10)
+[encode]   nz_【0326FIX】VRアバターユウギリV1_30s.mp4 -> 900_nz_【0326FIX】VRアバターユウギリV1_30s.mp4
+[encode]   sample_image_01.jpg -> 901_sample_image_01.mp4
+[encode]   sample_image_01.png -> 902_sample_image_01.mp4
+[encode]   sample_image_02.png -> 903_sample_image_02.mp4
+[encode]   sample_image_03.jpg -> 904_sample_image_03.mp4
+[encode]   sample_video_01.mp4 -> 905_sample_video_01.mp4
+[encode]   sample_video_02.mp4 -> 906_sample_video_02.mp4
+[encode]   sample_video_03.mp4 -> 907_sample_video_03.mp4
+[encode]   sample_video_04.mp4 -> 908_sample_video_04.mp4
+[encode]   sample_video_05.mp4 -> 909_sample_video_05.mp4
+[encode] lane lane1 (10)
+[encode]   nz_【0326FIX】VRアバターユウギリV1_30s.mp4 -> 900_nz_【0326FIX】VRアバターユウギリV1_30s.mp4
+[encode]   sample_image_01.jpg -> 901_sample_image_01.mp4
+[encode]   sample_image_01.png -> 902_sample_image_01.mp4
+[encode]   sample_image_02.png -> 903_sample_image_02.mp4
+[encode]   sample_image_03.jpg -> 904_sample_image_03.mp4
+[encode]   sample_video_01.mp4 -> 905_sample_video_01.mp4
+[encode]   sample_video_02.mp4 -> 906_sample_video_02.mp4
+[encode]   sample_video_03.mp4 -> 907_sample_video_03.mp4
+[encode]   sample_video_04.mp4 -> 908_sample_video_04.mp4
+[encode]   sample_video_05.mp4 -> 909_sample_video_05.mp4
+[encode] lane lane2 (10)
+[encode]   nz_【0326FIX】VRアバターユウギリV1_30s.mp4 -> 900_nz_【0326FIX】VRアバターユウギリV1_30s.mp4
+[encode]   sample_image_01.jpg -> 901_sample_image_01.mp4
+[encode]   sample_image_01.png -> 902_sample_image_01.mp4
+[encode]   sample_image_02.png -> 903_sample_image_02.mp4
+[encode]   sample_image_03.jpg -> 904_sample_image_03.mp4
+[encode]   sample_video_01.mp4 -> 905_sample_video_01.mp4
+[encode]   sample_video_02.mp4 -> 906_sample_video_02.mp4
+[encode]   sample_video_03.mp4 -> 907_sample_video_03.mp4
+[encode]   sample_video_04.mp4 -> 908_sample_video_04.mp4
+[encode]   sample_video_05.mp4 -> 909_sample_video_05.mp4
+[encode_and_push] push start

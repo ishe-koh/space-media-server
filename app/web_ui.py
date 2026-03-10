@@ -383,13 +383,13 @@ class Handler(BaseHTTPRequestHandler):
         <input type="text" name="default_start_offset_sec" value="0">
       </label>
       <label>active_time.from (HH:MM)
-        <input type="text" name="active_from" placeholder="08:00">
+        <input type="text" name="active_from" value="10:00" placeholder="10:00">
       </label>
       <label>active_time.until (HH:MM)
-        <input type="text" name="active_until" placeholder="22:00">
+        <input type="text" name="active_until" value="20:00" placeholder="20:00">
       </label>
       <label>auto_policy.directory
-        <input type="text" name="auto_dir" placeholder="media/mon">
+        <input type="text" name="auto_dir" value="" placeholder="If empty, uses the weekday directory">
       </label>
       <label>auto_policy.mode
         <select name="auto_mode">
@@ -412,21 +412,21 @@ class Handler(BaseHTTPRequestHandler):
     <p>Items (max 3 per lane). Empty source = skip.</p>
     <div class="row">
       <strong>lane0</strong><br>
-      <input type="text" name="lane0_item1" placeholder="media/mon/foo.mp4">
-      <input type="text" name="lane0_item2" placeholder="media/mon/bar.mp4">
-      <input type="text" name="lane0_item3" placeholder="media/mon/baz.mp4">
+      <input type="text" name="lane0_item1" placeholder="{html.escape(selected_weekday)}/foo.mp4">
+      <input type="text" name="lane0_item2" placeholder="{html.escape(selected_weekday)}/bar.mp4">
+      <input type="text" name="lane0_item3" placeholder="{html.escape(selected_weekday)}/baz.mp4">
     </div>
     <div class="row">
       <strong>lane1</strong><br>
-      <input type="text" name="lane1_item1" placeholder="media/mon/foo.mp4">
-      <input type="text" name="lane1_item2" placeholder="media/mon/bar.mp4">
-      <input type="text" name="lane1_item3" placeholder="media/mon/baz.mp4">
+      <input type="text" name="lane1_item1" placeholder="{html.escape(selected_weekday)}/foo.mp4">
+      <input type="text" name="lane1_item2" placeholder="{html.escape(selected_weekday)}/bar.mp4">
+      <input type="text" name="lane1_item3" placeholder="{html.escape(selected_weekday)}/baz.mp4">
     </div>
     <div class="row">
       <strong>lane2</strong><br>
-      <input type="text" name="lane2_item1" placeholder="media/mon/foo.mp4">
-      <input type="text" name="lane2_item2" placeholder="media/mon/bar.mp4">
-      <input type="text" name="lane2_item3" placeholder="media/mon/baz.mp4">
+      <input type="text" name="lane2_item1" placeholder="{html.escape(selected_weekday)}/foo.mp4">
+      <input type="text" name="lane2_item2" placeholder="{html.escape(selected_weekday)}/bar.mp4">
+      <input type="text" name="lane2_item3" placeholder="{html.escape(selected_weekday)}/baz.mp4">
     </div>
     <button type="submit">Write playlist</button>
   </form>
@@ -618,6 +618,8 @@ class Handler(BaseHTTPRequestHandler):
             auto_ext = form.get("auto_ext", "")
             extensions = [e.strip() for e in auto_ext.split(",") if e.strip()]
             auto_policy = {}
+            if not auto_dir and auto_mode != "disabled":
+                auto_dir = weekday
             if auto_dir:
                 auto_policy = {
                     "directory": auto_dir,

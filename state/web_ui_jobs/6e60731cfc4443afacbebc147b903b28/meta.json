@@ -1,0 +1,12 @@
+{
+  "vision_id": "sample_vision_player",
+  "weekday": "always",
+  "target": "akiba_01",
+  "player_user": "ishii",
+  "job_id": "6e60731cfc4443afacbebc147b903b28",
+  "pid": 272424,
+  "start_time": 1770707824.062163,
+  "status": "err",
+  "returncode": 1,
+  "end_time": 1770707846.7797198
+}

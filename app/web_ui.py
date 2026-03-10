@@ -214,11 +214,19 @@ class Handler(BaseHTTPRequestHandler):
             for t in known_targets
         ) or "<li class='mono'>(no known targets)</li>"
         weekdays = ["always", "mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        upload_dirs = weekdays + ["is_limited"]
         weekday_opts = "\n".join(
             f"<option value='{w}' {'selected' if w == selected_weekday else ''}>{w}</option>"
             for w in weekdays
         )
         media_dirs = list_media_dirs(VISION_ROOT, selected_vision) if selected_vision else {}
+        selected_upload_dir = query.get("media_dir", [selected_weekday])[0]
+        if selected_upload_dir not in upload_dirs:
+            selected_upload_dir = "always"
+        upload_dir_opts = "\n".join(
+            f"<option value='{html.escape(d)}' {'selected' if d == selected_upload_dir else ''}>{html.escape(d)}</option>"
+            for d in upload_dirs
+        )
         media_list_sections = []
         for weekday, files in media_dirs.items():
             delete_dir_url = (
@@ -307,9 +315,9 @@ class Handler(BaseHTTPRequestHandler):
       <label>VISION_ID
         <select name="vision_id">{vision_opts}</select>
       </label>
-      <label>Weekday
-        <select name="weekday">
-          {weekday_opts}
+      <label>Media Directory
+        <select name="media_dir">
+          {upload_dir_opts}
         </select>
       </label>
       <label>File
@@ -574,14 +582,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/upload":
             fields, files = parse_multipart(self.headers, raw)
             vision_id = fields.get("vision_id", "")
-            weekday = fields.get("weekday", "always")
+            media_dir = fields.get("media_dir", fields.get("weekday", "always"))
             fileinfo = files.get("file")
             if not vision_id or fileinfo is None:
                 self._html("<p class='err'>missing vision_id or file</p>", status=400)
                 return
             try:
                 filename, content = fileinfo
-                dest = save_upload(VISION_ROOT, vision_id, weekday, filename, content)
+                dest = save_upload(VISION_ROOT, vision_id, media_dir, filename, content)
             except Exception as e:
                 self._html(f"<p class='err'>upload failed: {html.escape(str(e))}</p>", status=500)
                 return

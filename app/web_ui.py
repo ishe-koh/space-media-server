@@ -389,7 +389,7 @@ class Handler(BaseHTTPRequestHandler):
         <input type="text" name="active_until" value="20:00" placeholder="20:00">
       </label>
       <label>auto_policy.directory
-        <input type="text" name="auto_dir" value="" placeholder="If empty, uses the weekday directory">
+        <input type="text" name="auto_dir" value="" placeholder="If empty, uses media/&lt;weekday&gt;">
       </label>
       <label>auto_policy.mode
         <select name="auto_mode">
@@ -412,21 +412,39 @@ class Handler(BaseHTTPRequestHandler):
     <p>Items (max 3 per lane). Empty source = skip.</p>
     <div class="row">
       <strong>lane0</strong><br>
-      <input type="text" name="lane0_item1" placeholder="{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane0_item2" placeholder="{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane0_item3" placeholder="{html.escape(selected_weekday)}/baz.mp4">
+      <input type="text" name="lane0_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
+      <input type="text" name="lane0_item1_from" placeholder="is_available_from (optional): 2026-03-10T00:00:00+09:00">
+      <input type="text" name="lane0_item1_until" placeholder="is_available_until (optional): 2026-03-31T23:59:59+09:00">
+      <input type="text" name="lane0_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
+      <input type="text" name="lane0_item2_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane0_item2_until" placeholder="is_available_until (optional)">
+      <input type="text" name="lane0_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
+      <input type="text" name="lane0_item3_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane0_item3_until" placeholder="is_available_until (optional)">
     </div>
     <div class="row">
       <strong>lane1</strong><br>
-      <input type="text" name="lane1_item1" placeholder="{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane1_item2" placeholder="{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane1_item3" placeholder="{html.escape(selected_weekday)}/baz.mp4">
+      <input type="text" name="lane1_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
+      <input type="text" name="lane1_item1_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane1_item1_until" placeholder="is_available_until (optional)">
+      <input type="text" name="lane1_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
+      <input type="text" name="lane1_item2_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane1_item2_until" placeholder="is_available_until (optional)">
+      <input type="text" name="lane1_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
+      <input type="text" name="lane1_item3_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane1_item3_until" placeholder="is_available_until (optional)">
     </div>
     <div class="row">
       <strong>lane2</strong><br>
-      <input type="text" name="lane2_item1" placeholder="{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane2_item2" placeholder="{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane2_item3" placeholder="{html.escape(selected_weekday)}/baz.mp4">
+      <input type="text" name="lane2_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
+      <input type="text" name="lane2_item1_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane2_item1_until" placeholder="is_available_until (optional)">
+      <input type="text" name="lane2_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
+      <input type="text" name="lane2_item2_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane2_item2_until" placeholder="is_available_until (optional)">
+      <input type="text" name="lane2_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
+      <input type="text" name="lane2_item3_from" placeholder="is_available_from (optional)">
+      <input type="text" name="lane2_item3_until" placeholder="is_available_until (optional)">
     </div>
     <button type="submit">Write playlist</button>
   </form>
@@ -619,7 +637,7 @@ class Handler(BaseHTTPRequestHandler):
             extensions = [e.strip() for e in auto_ext.split(",") if e.strip()]
             auto_policy = {}
             if not auto_dir and auto_mode != "disabled":
-                auto_dir = weekday
+                auto_dir = f"media/{weekday}"
             if auto_dir:
                 auto_policy = {
                     "directory": auto_dir,
@@ -635,7 +653,18 @@ class Handler(BaseHTTPRequestHandler):
                 for j in range(1, 4):
                     key = f"{lane_id}_item{j}"
                     val = form.get(key, "").strip()
-                    if val:
+                    if not val:
+                        continue
+                    available_from = form.get(f"{key}_from", "").strip()
+                    available_until = form.get(f"{key}_until", "").strip()
+                    if available_from or available_until:
+                        item = {"source": val}
+                        if available_from:
+                            item["is_available_from"] = available_from
+                        if available_until:
+                            item["is_available_until"] = available_until
+                        items.append(item)
+                    else:
                         items.append(val)
                 lane_conf = {}
                 if items:

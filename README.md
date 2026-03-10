@@ -26,6 +26,7 @@ space-media-server/
 │     │  └─ vision_config.json
 │     ├─ source/
 │     │  ├─ media/             # source videos/images
+│     │  │  └─ is_limited/     # manually referenced media with availability window
 │     │  └─ playlists/         # server-side playlists
 │     │     ├─ always.json
 │     │     ├─ mon.json ... sun.json
@@ -84,8 +85,10 @@ command="/usr/bin/rrsync -rw /home/pi/space-vision-player/vision_players",no-por
 
 ## Playlists (server-side)
 - `vision_players/<vision_id>/source/playlists/<weekday>.json`
-- items は `source` を使う
+- items は `source` を使う（`source/` からの相対パス。例: `media/tue/foo.mp4`）
 - `auto_policy` でフォルダから自動生成も可能
+- 期間限定素材は `source/media/is_limited/` に置き、item object の
+  `is_available_from` / `is_available_until` で配信期間を指定する運用を推奨
 
 JSONC guide:
 - `vision_players/sample_vision_player/source/playlists/sample.jsonc`

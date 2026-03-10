@@ -80,6 +80,12 @@ def main() -> None:
             item: dict = {"source": source}
             if _prompt_yes("Is this an image (needs duration_sec)? (y/n)", False):
                 item["duration_sec"] = _prompt_int("duration_sec", 10)
+            available_from = _prompt("is_available_from (optional, ISO8601)", "")
+            if available_from:
+                item["is_available_from"] = available_from
+            available_until = _prompt("is_available_until (optional, ISO8601)", "")
+            if available_until:
+                item["is_available_until"] = available_until
             items.append(item if len(item) > 1 else source)
 
         if items:

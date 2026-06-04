@@ -219,11 +219,24 @@ def _build_output_name(source_path: Path, auto_index: int) -> tuple[str, int]:
     return f"{auto_index:03d}_{stem}{suffix}", auto_index + 1
 
 
-def _map_auto_directory_for_output(directory: str, lane_id: str) -> Path:
+def _strip_media_prefix(directory: str) -> Path:
     rel_dir = Path(directory)
     parts = rel_dir.parts
     if parts and parts[0] == "media":
         rel_dir = Path(*parts[1:]) if len(parts) > 1 else Path()
+    return rel_dir
+
+
+def _normalize_auto_policy_for_output(auto_policy: Dict) -> Dict:
+    output_policy = dict(auto_policy)
+    directory = output_policy.get("directory")
+    if isinstance(directory, str) and directory:
+        output_policy["directory"] = str(_strip_media_prefix(directory))
+    return output_policy
+
+
+def _map_auto_directory_for_output(directory: str, lane_id: str) -> Path:
+    rel_dir = _strip_media_prefix(directory)
     return rel_dir / lane_id
 
 
@@ -236,7 +249,10 @@ def _build_encode_items(
     lanes = playlist.get("lanes", {})
     auto_policy = playlist.get("auto_policy", {})
     output_playlist = dict(playlist)
-    output_playlist.pop("auto_policy", None)
+    if isinstance(auto_policy, dict) and auto_policy:
+        output_playlist["auto_policy"] = _normalize_auto_policy_for_output(auto_policy)
+    else:
+        output_playlist.pop("auto_policy", None)
     expand_active_time_always(output_playlist)
     output_lanes: Dict[str, Dict] = {}
     items_out: List[EncodeItem] = []
@@ -251,7 +267,8 @@ def _build_encode_items(
             raise ValueError("lane_policy must be an object")
 
         lane_auto_policy = auto_policy
-        if "auto_policy" in lane_conf:
+        has_lane_auto_policy = "auto_policy" in lane_conf
+        if has_lane_auto_policy:
             if not isinstance(lane_conf["auto_policy"], dict):
                 raise ValueError("auto_policy must be an object")
             lane_auto_policy = lane_conf["auto_policy"]
@@ -267,10 +284,11 @@ def _build_encode_items(
             directory = lane_auto_policy.get("directory")
             if isinstance(directory, str) and directory:
                 fallback_dir_rel = _map_auto_directory_for_output(directory, lane_id)
-                output_lane["auto_policy"] = {
-                    **lane_auto_policy,
-                    "directory": str(fallback_dir_rel),
-                }
+                if has_lane_auto_policy:
+                    output_lane["auto_policy"] = {
+                        **lane_auto_policy,
+                        "directory": str(fallback_dir_rel),
+                    }
         else:
             output_lane.pop("auto_policy", None)
 

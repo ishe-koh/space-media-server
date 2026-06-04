@@ -34,6 +34,7 @@ from app.web.media import (
     read_playlist,
     save_upload,
 )
+from app.encoding_pipeline import expand_active_time_always
 
 
 def _list_vision_ids() -> list[str]:
@@ -690,6 +691,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
             if auto_policy:
                 playlist["auto_policy"] = auto_policy
+            expand_active_time_always(playlist)
 
             out_path = _write_playlist(vision_id, weekday, playlist)
             body = f"""

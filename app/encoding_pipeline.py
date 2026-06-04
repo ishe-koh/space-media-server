@@ -11,6 +11,7 @@ from app.layout_calc import Rect, calc_lane_rects
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mpg", ".mpeg"}
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,16 @@ class EncodePlan:
     playlist_out: Path
     items: List[EncodeItem]
     playlist_json: Dict
+
+
+def expand_active_time_always(playlist: Dict) -> None:
+    active_time = playlist.get("active_time")
+    if not isinstance(active_time, dict) or "always" not in active_time:
+        return
+
+    always = active_time["always"]
+    expanded = {weekday: active_time.get(weekday, always) for weekday in WEEKDAYS}
+    playlist["active_time"] = expanded
 
 
 def _align_expr(align: str, total: str, inner: str) -> str:
@@ -226,6 +237,7 @@ def _build_encode_items(
     auto_policy = playlist.get("auto_policy", {})
     output_playlist = dict(playlist)
     output_playlist.pop("auto_policy", None)
+    expand_active_time_always(output_playlist)
     output_lanes: Dict[str, Dict] = {}
     items_out: List[EncodeItem] = []
     seen_output_paths: set[Path] = set()

@@ -79,7 +79,7 @@ class ActiveTimeExpansionTest(unittest.TestCase):
             )
             self.assertNotIn("always", plan.playlist_json["active_time"])
 
-    def test_auto_policy_directory_is_output_media_relative(self) -> None:
+    def test_auto_policy_directory_is_output_media_relative_per_lane(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             config_path = self._write_config(root)
@@ -108,8 +108,11 @@ class ActiveTimeExpansionTest(unittest.TestCase):
                 playlists_dir=root / "playlists",
             )
 
-            self.assertEqual(plan.playlist_json["auto_policy"]["directory"], "always")
-            self.assertNotIn("auto_policy", plan.playlist_json["lanes"]["lane0"])
+            self.assertNotIn("auto_policy", plan.playlist_json)
+            self.assertEqual(
+                plan.playlist_json["lanes"]["lane0"]["auto_policy"]["directory"],
+                "always/lane0",
+            )
 
     def _write_config(self, root: Path) -> Path:
         config_path = root / "vision_config.json"

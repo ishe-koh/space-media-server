@@ -227,14 +227,6 @@ def _strip_media_prefix(directory: str) -> Path:
     return rel_dir
 
 
-def _normalize_auto_policy_for_output(auto_policy: Dict) -> Dict:
-    output_policy = dict(auto_policy)
-    directory = output_policy.get("directory")
-    if isinstance(directory, str) and directory:
-        output_policy["directory"] = str(_strip_media_prefix(directory))
-    return output_policy
-
-
 def _map_auto_directory_for_output(directory: str, lane_id: str) -> Path:
     rel_dir = _strip_media_prefix(directory)
     return rel_dir / lane_id
@@ -249,10 +241,7 @@ def _build_encode_items(
     lanes = playlist.get("lanes", {})
     auto_policy = playlist.get("auto_policy", {})
     output_playlist = dict(playlist)
-    if isinstance(auto_policy, dict) and auto_policy:
-        output_playlist["auto_policy"] = _normalize_auto_policy_for_output(auto_policy)
-    else:
-        output_playlist.pop("auto_policy", None)
+    output_playlist.pop("auto_policy", None)
     expand_active_time_always(output_playlist)
     output_lanes: Dict[str, Dict] = {}
     items_out: List[EncodeItem] = []
@@ -284,11 +273,10 @@ def _build_encode_items(
             directory = lane_auto_policy.get("directory")
             if isinstance(directory, str) and directory:
                 fallback_dir_rel = _map_auto_directory_for_output(directory, lane_id)
-                if has_lane_auto_policy:
-                    output_lane["auto_policy"] = {
-                        **lane_auto_policy,
-                        "directory": str(fallback_dir_rel),
-                    }
+                output_lane["auto_policy"] = {
+                    **lane_auto_policy,
+                    "directory": str(fallback_dir_rel),
+                }
         else:
             output_lane.pop("auto_policy", None)
 

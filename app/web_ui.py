@@ -85,7 +85,8 @@ def _start_job(command: list[str], env: dict[str, str], cwd: Path, meta: dict) -
     proc = subprocess.Popen(
         command,
         cwd=str(cwd),
-        env=env,
+        env={**env, "PYTHONUNBUFFERED": "1"},
+        stdin=subprocess.DEVNULL,
         stdout=out_f,
         stderr=err_f,
         text=True,

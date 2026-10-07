@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -509,8 +510,10 @@ def encode_plan(
         rect = rects[index]
         lane_items = [i for i in plan.items if i.output_path.parts[-2] == lane_id]
 
-        for item in lane_items:
+        for item_index, item in enumerate(lane_items, start=1):
+            progress = f"[encode] {plan.weekday}/{lane_id} {item_index}/{len(lane_items)}"
             if item.output_path.exists() and not overwrite:
+                print(f"{progress} skip existing: {item.output_path.name}", flush=True)
                 continue
             if not item.source_path.exists():
                 raise FileNotFoundError(f"missing source: {item.source_path}")
@@ -520,7 +523,10 @@ def encode_plan(
 
             item.output_path.parent.mkdir(parents=True, exist_ok=True)
             cmd = _build_ffmpeg_cmd(item, rect, config, ffmpeg_path)
-            subprocess.run(cmd, check=True)
+            print(f"{progress} start: {item.source_path.name}", flush=True)
+            started = time.monotonic()
+            subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
+            print(f"{progress} done ({time.monotonic() - started:.1f}s): {item.output_path.name}", flush=True)
 
     if dry_run:
         return
@@ -529,6 +535,7 @@ def encode_plan(
         json.dumps(plan.playlist_json, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    print(f"[encode] playlist complete: {plan.weekday}", flush=True)
 
 
 def encode_playlist(

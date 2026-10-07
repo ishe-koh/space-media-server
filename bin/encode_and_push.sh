@@ -72,10 +72,10 @@ fi
 if [[ -n "${VISION_ID}" ]]; then
   if [[ -n "${PLAYLIST}" ]]; then
     echo "[encode_and_push] encode start (vision_id=${VISION_ID}, playlist=${PLAYLIST})"
-    ./bin/encode.py --vision-id "${VISION_ID}" --playlist "${PLAYLIST}"
+    PYTHONUNBUFFERED=1 ./bin/encode.py --vision-id "${VISION_ID}" --playlist "${PLAYLIST}"
   else
-    echo "[encode_and_push] encode start (vision_id=${VISION_ID}, playlist=interactive/all)"
-    ./bin/encode.py --vision-id "${VISION_ID}"
+    echo "[encode_and_push] encode start (vision_id=${VISION_ID}, playlist=all)"
+    PYTHONUNBUFFERED=1 ./bin/encode.py --vision-id "${VISION_ID}" --all
   fi
 else
   if [[ -n "${PLAYLIST}" ]]; then

@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.config_loader import LanePolicy, VisionConfig, load_vision_config
 from app.layout_calc import Rect, calc_lane_rects
+from app.limited_media import limited_items
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
@@ -262,9 +263,30 @@ def _build_encode_items(
                 raise ValueError("auto_policy must be an object")
             lane_auto_policy = lane_conf["auto_policy"]
 
-        auto_items = _build_auto_items(lane_auto_policy, source_root)
+        lane_auto_policy = dict(lane_auto_policy)
         auto_mode = lane_auto_policy.get("mode", "replace_if_empty")
+        auto_items = _build_auto_items(lane_auto_policy, source_root)
+        # Standard weekday folders fall back to ordinary always media when empty.
+        if (auto_mode != "disabled" and weekday in WEEKDAYS
+                and lane_auto_policy.get("directory") == f"media/{weekday}"
+                and not auto_items):
+            lane_auto_policy["directory"] = "media/always"
+            auto_items = _build_auto_items(lane_auto_policy, source_root)
         lane_items = _merge_items(lane_items, auto_items, auto_mode, source_root)
+        shared_items = limited_items(source_root, IMAGE_EXTENSIONS | VIDEO_EXTENSIONS)
+        mode = playlist.get("weekday_limited_mode", "weekday_plus_limited")
+        if mode not in {"weekday_only", "weekday_plus_limited"}:
+            raise ValueError("unknown weekday_limited_mode")
+        has_weekday_media = weekday in WEEKDAYS and bool(_build_auto_items(
+            {"directory": f"media/{weekday}"}, source_root))
+        # Remove duplicate explicit entries so a common deadline cannot be bypassed.
+        configured_paths = {(source_root / item["source"]).resolve() for item in shared_items}
+        lane_items = [item for item in lane_items
+                      if _parse_item(item, source_root)[0].resolve() not in configured_paths]
+        if has_weekday_media and mode == "weekday_only":
+            shared_items = []
+        shared_paths = {(source_root / item["source"]).resolve() for item in shared_items}
+        lane_items += shared_items
 
         lane_dir = encoded_dir / weekday / lane_id
         lane_dir.mkdir(parents=True, exist_ok=True)
@@ -273,6 +295,9 @@ def _build_encode_items(
             directory = lane_auto_policy.get("directory")
             if isinstance(directory, str) and directory:
                 fallback_dir_rel = _map_auto_directory_for_output(directory, lane_id)
+                if shared_items:
+                    # Auto discovery must never collect the encoded limited files.
+                    fallback_dir_rel = Path("_auto") / weekday / lane_id
                 output_lane["auto_policy"] = {
                     **lane_auto_policy,
                     "directory": str(fallback_dir_rel),
@@ -286,6 +311,9 @@ def _build_encode_items(
             is_image = _is_image(source_path)
             output_name, auto_index = _build_output_name(source_path, auto_index)
             output_path = lane_dir / output_name
+            if source_path.resolve() in shared_paths:
+                output_path = encoded_dir / "_limited" / weekday / lane_id / output_name
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
             if output_path not in seen_output_paths:
                 items_out.append(

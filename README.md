@@ -317,3 +317,23 @@ VISION_ID=sample_vision_player PLAYER_HOSTNAME={PLAYER_HOSTNAME} ./bin/encode_an
 
 ## References
 - playlist spec: `vision_players/sample_vision_player/source/playlists/sample.jsonc`
+
+## 共通の期限付き素材
+
+Web UI のアップロード先 `limited`（`source/media/is_limited/`）を選び、
+放映終了日時を指定する。開始日時は任意。例: `2026-10-31T23:59:59+09:00`。
+期限は `source/limited_media.json` に素材名ごとに保存され、全曜日・全laneへ共通適用される。
+既存素材の期限は「期限付き素材（全曜日共通）」から編集できる。
+期限未設定の素材は自動追加されない。
+
+標準の `media/mon`〜`media/sun` 自動収集で対応フォルダに対応形式の素材がない場合、
+`media/always` を使う。これに共通の期限付き素材を追加する。
+曜日素材がある場合はWeb UI「曜日素材がある日の再生設定」で、曜日ごとに
+「曜日素材のみ」または「曜日素材＋limited」を選ぶ。既存プレイリストの他の設定は維持する。
+JSONでは `weekday_limited_mode` に `weekday_only` または `weekday_plus_limited` を指定する。
+省略時は `weekday_plus_limited`。曜日フォルダが空の場合は選択にかかわらず always＋limited。
+alwaysプレイリスト自体も選択にかかわらず always＋limited。
+明示的なItemsと disabled の設定は維持する（共通素材の追加は行う）。
+通常素材用の自動収集出力は期限付き素材と分離し、期限切れ素材の再追加を防ぐ。
+変更後は Encode + Push の Weekday を `all` にして全プレイリストを更新する。
+期限の判定はplayerが実行するため、終了時刻に再pushする必要はない。

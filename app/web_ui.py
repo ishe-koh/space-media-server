@@ -35,6 +35,7 @@ from app.web.media import (
     save_upload,
 )
 from app.encoding_pipeline import expand_active_time_always
+from app.limited_media import load_windows, save_window, validate_window
 
 
 def _list_vision_ids() -> list[str]:
@@ -229,6 +230,29 @@ class Handler(BaseHTTPRequestHandler):
             f"<option value='{html.escape(value)}' {'selected' if value == selected_upload_dir else ''}>{html.escape(label)}</option>"
             for value, label in upload_dir_choices
         )
+        windows = load_windows(VISION_ROOT / selected_vision / "source") if selected_vision else {}
+        limited_forms = []
+        for media in media_dirs.get("is_limited", []):
+            window = windows.get(media.name, {})
+            limited_forms.append(
+                f"<form method='POST' action='/save_limited'>"
+                f"<input type='hidden' name='vision_id' value='{html.escape(selected_vision, quote=True)}'>"
+                f"<input type='hidden' name='filename' value='{html.escape(media.name, quote=True)}'>"
+                f"<strong>{html.escape(media.name)}</strong>"
+                f"<label>放映開始日時（任意）<input type='text' name='available_from' "
+                f"value='{html.escape(window.get('is_available_from', ''), quote=True)}' placeholder='2026-10-07T00:00:00+09:00'></label>"
+                f"<label>放映終了日時（必須）<input type='text' name='available_until' required "
+                f"value='{html.escape(window.get('is_available_until', ''), quote=True)}' placeholder='2026-10-31T23:59:59+09:00'></label>"
+                f"<button type='submit'>期限を保存</button></form><hr>"
+            )
+        limited_html = "".join(limited_forms) or "<p>limited素材はありません。</p>"
+        current_playlist_path = VISION_ROOT / selected_vision / "source" / "playlists" / f"{selected_weekday}.json"
+        current_playlist = json.loads(current_playlist_path.read_text(encoding="utf-8")) if current_playlist_path.exists() else {}
+        current_mode = current_playlist.get("weekday_limited_mode", "weekday_plus_limited")
+        limited_mode_options = "".join(
+            f"<option value='{value}' {'selected' if current_mode == value else ''}>{label}</option>"
+            for value, label in [("weekday_only", "曜日素材のみ"), ("weekday_plus_limited", "曜日素材＋limited")]
+        )
         media_list_sections = []
         for weekday, files in media_dirs.items():
             delete_dir_url = (
@@ -282,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
         </select>
       </label>
       <label>USER (optional)
-        <input type="text" name="player_user" placeholder="pi">
+        <input type="text" name="player_user" value="pi">
       </label>
     </div>
     <button type="submit">Run encode_and_push</button>
@@ -326,6 +350,12 @@ class Handler(BaseHTTPRequestHandler):
         <input type="file" name="file">
       </label>
     </div>
+    <label>limited素材の放映開始日時（任意）
+      <input type="text" name="available_from" placeholder="2026-10-07T00:00:00+09:00">
+    </label>
+    <label>limited素材の放映終了日時（limitedの場合は必須）
+      <input type="text" name="available_until" placeholder="2026-10-31T23:59:59+09:00">
+    </label>
     <button type="submit">Upload</button>
   </form>
   <hr>
@@ -361,6 +391,21 @@ class Handler(BaseHTTPRequestHandler):
   }});
 </script>
 
+<details>
+  <summary>期限付き素材（全曜日共通）</summary>
+  <p>各曜日への登録は不要です。保存後は Encode + Push の Weekday を all にして反映してください。期限未設定の素材は再生対象になりません。</p>
+  {limited_html}
+</details>
+<details open>
+  <summary>曜日素材がある日の再生設定</summary>
+  <form method="POST" action="/save_weekday_limited_mode">
+    <input type="hidden" name="vision_id" value="{html.escape(selected_vision)}">
+    <label>設定する曜日<select name="weekday">{weekday_opts}</select></label>
+    <label>曜日素材がある場合<select name="weekday_limited_mode">{limited_mode_options}</select></label>
+    <p>曜日フォルダが空なら、この選択にかかわらず always＋期限内のlimited を再生します。alwaysを選んだ場合も共通素材を再生します。設定を保存してから Encode + Push で反映してください。</p>
+    <button type="submit">再生設定を保存</button>
+  </form>
+</details>
 <details>
   <summary>Generate Playlist</summary>
   <form method="POST" action="/gen_playlist">
@@ -525,7 +570,7 @@ class Handler(BaseHTTPRequestHandler):
             weekday = form.get("weekday", "always")
             target_manual = form.get("target_manual", "").strip()
             target_select = form.get("target_select", "").strip()
-            player_user = form.get("player_user", "").strip()
+            player_user = form.get("player_user", "pi").strip() or "pi"
             env = os.environ.copy()
             env["VISION_ID"] = vision_id
             target = target_select or target_manual
@@ -534,8 +579,7 @@ class Handler(BaseHTTPRequestHandler):
                     env["PLAYER_IP"] = target
                 else:
                     env["PLAYER_HOSTNAME"] = target
-            if player_user:
-                env["PLAYER_USER"] = player_user
+            env["PLAYER_USER"] = player_user
             if weekday == "all":
                 env.pop("PLAYLIST", None)
             else:
@@ -545,7 +589,7 @@ class Handler(BaseHTTPRequestHandler):
                 "vision_id": vision_id,
                 "weekday": weekday,
                 "target": target or "",
-                "player_user": player_user or "",
+                "player_user": player_user,
             }
             job_id = _start_job(
                 [str(REPO_ROOT / "bin" / "encode_and_push.sh")],
@@ -581,6 +625,41 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        if self.path == "/save_weekday_limited_mode":
+            vision_id = form.get("vision_id", "")
+            weekday = form.get("weekday", "")
+            mode = form.get("weekday_limited_mode", "")
+            if (vision_id not in _list_vision_ids() or weekday not in {"always", "mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+                    or mode not in {"weekday_only", "weekday_plus_limited"}):
+                self._html("<p class='err'>invalid vision, weekday or mode</p>", status=400)
+                return
+            path = VISION_ROOT / vision_id / "source" / "playlists" / f"{weekday}.json"
+            payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {
+                "lanes": {"lane0": {}},
+                "auto_policy": {"directory": f"media/{weekday}", "mode": "replace_if_empty"},
+            }
+            payload["weekday_limited_mode"] = mode
+            _write_playlist(vision_id, weekday, payload)
+            self._html(f"<p class='ok'>再生設定を保存しました。Encode + Pushで反映してください。</p><a href='/?vision_id={html.escape(vision_id)}&weekday={weekday}'>back</a>")
+            return
+
+        if self.path == "/save_limited":
+            try:
+                vision_id = form.get("vision_id", "")
+                filename = Path(form.get("filename", "")).name
+                if vision_id not in _list_vision_ids() or not filename:
+                    raise ValueError("unknown vision or filename")
+                source_root = VISION_ROOT / vision_id / "source"
+                if not (source_root / "media" / "is_limited" / filename).is_file():
+                    raise ValueError("素材がありません")
+                save_window(source_root, filename, form.get("available_from", "").strip(),
+                            form.get("available_until", "").strip())
+            except (ValueError, OSError) as e:
+                self._html(f"<p class='err'>{html.escape(str(e))}</p>", status=400)
+                return
+            self._html(f"<p class='ok'>期限を保存しました。Encode + Push の all で反映してください。</p><a href='/?vision_id={html.escape(vision_id)}'>back</a>")
+            return
+
         if self.path == "/upload":
             fields, files = parse_multipart(self.headers, raw)
             vision_id = fields.get("vision_id", "")
@@ -591,7 +670,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 filename, content = fileinfo
+                if vision_id not in _list_vision_ids() or media_dir not in {"always", "mon", "tue", "wed", "thu", "fri", "sat", "sun", "is_limited"}:
+                    raise ValueError("unknown vision or media directory")
+                if media_dir == "is_limited":
+                    validate_window(fields.get("available_from", "").strip(), fields.get("available_until", "").strip())
                 dest = save_upload(VISION_ROOT, vision_id, media_dir, filename, content)
+                if media_dir == "is_limited":
+                    save_window(VISION_ROOT / vision_id / "source", dest.name,
+                                fields.get("available_from", "").strip(), fields.get("available_until", "").strip())
             except Exception as e:
                 self._html(f"<p class='err'>upload failed: {html.escape(str(e))}</p>", status=500)
                 return
@@ -682,6 +768,11 @@ class Handler(BaseHTTPRequestHandler):
                 lanes[lane_id] = lane_conf
 
             playlist = {"meta": meta, "lanes": lanes}
+            existing_path = VISION_ROOT / vision_id / "source" / "playlists" / f"{weekday}.json"
+            if existing_path.exists():
+                existing = json.loads(existing_path.read_text(encoding="utf-8"))
+                if "weekday_limited_mode" in existing:
+                    playlist["weekday_limited_mode"] = existing["weekday_limited_mode"]
             if active_from or active_until:
                 playlist["active_time"] = {
                     weekday: {

@@ -68,7 +68,9 @@ class AvailabilityUITest(unittest.TestCase):
             base = f"http://127.0.0.1:{server.server_port}"
             try:
                 page = urlopen(base + "/?vision_id=test").read().decode()
-                self.assertIn("使用期限だけPush", page)
+                self.assertIn("素材を用意する", page)
+                publish_page = urlopen(base + "/?vision_id=test&tab=publish").read().decode()
+                self.assertIn("使用期限だけPush", publish_page)
                 self.assertIn("always/normal.mp4", page)
                 fields = {"vision_id": "test", "media_dir": "always", "filename": "normal.mp4",
                           "available_until": "2026-10-31T23:59:59+09:00"}

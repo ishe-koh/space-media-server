@@ -9,7 +9,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlencode
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +36,8 @@ from app.web.media import (
 )
 from app.encoding_pipeline import expand_active_time_always
 from app.limited_media import load_media_rules, save_media_rule, validate_window
+from app.web.dashboard import (render_dashboard, render_job, save_schedule, save_connection,
+                               iso_input, fingerprints, record_publish, DAYS, EXTENSIONS)
 
 
 def _list_vision_ids() -> list[str]:
@@ -62,7 +64,9 @@ def _ensure_jobs_dir() -> Path:
 
 
 def _write_json(path: Path, payload: dict) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary.replace(path)
 
 
 def _job_paths(job_id: str) -> dict[str, Path]:
@@ -108,6 +112,9 @@ def _start_job(command: list[str], env: dict[str, str], cwd: Path, meta: dict) -
         meta["returncode"] = rc
         meta["end_time"] = time.time()
         meta["status"] = "ok" if rc == 0 else "err"
+        if rc == 0 and meta.get("publish_snapshot"):
+            record_publish(VISION_ROOT / meta["vision_id"], meta["weekday"],
+                           meta["publish_snapshot"], meta.get("target", ""))
         _write_json(paths["meta"], meta)
 
     threading.Thread(target=_wait_and_record, daemon=True).start()
@@ -133,31 +140,15 @@ def _job_running(meta: dict) -> bool:
 class Handler(BaseHTTPRequestHandler):
     def _html(self, body: str, status: int = 200, refresh_sec: int | None = None) -> None:
         refresh_tag = f'<meta http-equiv="refresh" content="{refresh_sec}">' if refresh_sec else ""
+        static = REPO_ROOT / "app/web/static"
+        style = (static / "manager.css").read_text(encoding="utf-8")
+        script = (static / "manager.js").read_text(encoding="utf-8")
+        if 'class="app"' not in body and 'class="standalone"' not in body:
+            body = '<main class="standalone"><section class="card">' + body + '</section></main>'
         content = f"""<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    {refresh_tag}
-    <title>space-media-server</title>
-    <style>
-      body {{ font-family: sans-serif; margin: 16px; }}
-      h1 {{ margin: 0 0 8px 0; }}
-      details {{ border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }}
-      summary {{ cursor: pointer; font-weight: 600; }}
-      label {{ display: block; margin: 6px 0; }}
-      input[type=text], select {{ width: 100%; max-width: 100%; }}
-      .grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
-      .row {{ margin: 6px 0; }}
-      .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
-      .ok {{ color: #1a7f37; }}
-      .err {{ color: #b42318; }}
-      @media (max-width: 900px) {{ .grid {{ grid-template-columns: 1fr; }} }}
-    </style>
-  </head>
-  <body>
-    {body}
-  </body>
-</html>"""
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+{refresh_tag}<title>entas | Vision Manager</title><style>{style}</style></head>
+<body>{body}<script>{script}</script></body></html>"""
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -188,332 +179,35 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         vision_ids = _list_vision_ids()
-        lease_hosts = list_leases_hosts(LEASES_FILE)
-        known_targets = load_known_targets(KNOWN_TARGETS_FILE)
         query = parse_qs(parsed.query)
-        selected_vision = query.get("vision_id", [""])[0]
-        selected_weekday = query.get("weekday", ["always"])[0]
-        if not selected_vision and vision_ids:
-            selected_vision = vision_ids[0]
-
-        vision_opts = "\n".join(
-            f"<option value='{html.escape(v)}' {'selected' if v == selected_vision else ''}>{html.escape(v)}</option>"
-            for v in vision_ids
-        )
-        target_opts = "\n".join(
-            f"<option value='{html.escape(t.get('target',''))}'>{html.escape(t.get('name',''))}</option>"
-            for t in known_targets
-        ) + "\n" + "\n".join(
-            f"<option value='{html.escape(h)}'>{html.escape(h)}</option>"
-            for h in lease_hosts
-        )
-        known_list = "\n".join(
-            f"<li>{html.escape(t.get('name',''))} "
-            f"({html.escape(t.get('target',''))}"
-            f"{' / ' + html.escape(t.get('ip','')) if t.get('ip') else ''}) "
-            f"<a href='/ping_target?target={html.escape(t.get('ip') or t.get('target',''))}'>ping</a> "
-            f"<a href='/delete_target?name={html.escape(t.get('name',''))}'>delete</a>"
-            f"</li>"
-            for t in known_targets
-        ) or "<li class='mono'>(no known targets)</li>"
-        weekdays = ["always", "mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-        upload_dir_choices = [(w, w) for w in weekdays] + [("is_limited", "limited")]
-        weekday_opts = "\n".join(
-            f"<option value='{w}' {'selected' if w == selected_weekday else ''}>{w}</option>"
-            for w in weekdays
-        )
-        media_dirs = list_media_dirs(VISION_ROOT, selected_vision) if selected_vision else {}
-        selected_upload_dir = query.get("media_dir", [selected_weekday])[0]
-        valid_upload_values = [value for value, _label in upload_dir_choices]
-        if selected_upload_dir not in valid_upload_values:
-            selected_upload_dir = "always"
-        upload_dir_opts = "\n".join(
-            f"<option value='{html.escape(value)}' {'selected' if value == selected_upload_dir else ''}>{html.escape(label)}</option>"
-            for value, label in upload_dir_choices
-        )
-        windows = load_media_rules(VISION_ROOT / selected_vision / "source") if selected_vision else {}
-        limited_forms = []
-        for media_dir, media in ((directory, media) for directory, files in media_dirs.items() for media in files):
-            source_id = f"media/{media_dir}/{media.name}"
-            window = windows.get(source_id, {})
-            limited_forms.append(
-                f"<form method='POST' action='/save_limited'>"
-                f"<input type='hidden' name='vision_id' value='{html.escape(selected_vision, quote=True)}'>"
-                f"<input type='hidden' name='filename' value='{html.escape(media.name, quote=True)}'>"
-                f"<input type='hidden' name='media_dir' value='{html.escape(media_dir, quote=True)}'>"
-                f"<strong>{html.escape(media_dir)}/{html.escape(media.name)}</strong>"
-                f"<label>放映開始日時（任意）<input type='text' name='available_from' "
-                f"value='{html.escape(window.get('is_available_from', ''), quote=True)}' placeholder='2026-10-07T00:00:00+09:00'></label>"
-                f"<label>放映終了日時（limitedは必須）<input type='text' name='available_until' {'required' if media_dir == 'is_limited' else ''} "
-                f"value='{html.escape(window.get('is_available_until', ''), quote=True)}' placeholder='2026-10-31T23:59:59+09:00'></label>"
-                f"<button type='submit'>期限を保存</button></form><hr>"
-            )
-        limited_html = "".join(limited_forms) or "<p>limited素材はありません。</p>"
-        current_playlist_path = VISION_ROOT / selected_vision / "source" / "playlists" / f"{selected_weekday}.json"
-        current_playlist = json.loads(current_playlist_path.read_text(encoding="utf-8")) if current_playlist_path.exists() else {}
-        current_mode = current_playlist.get("weekday_limited_mode", "weekday_plus_limited")
-        limited_mode_options = "".join(
-            f"<option value='{value}' {'selected' if current_mode == value else ''}>{label}</option>"
-            for value, label in [("weekday_only", "曜日素材のみ"), ("weekday_plus_limited", "曜日素材＋limited")]
-        )
-        media_list_sections = []
-        for weekday, files in media_dirs.items():
-            delete_dir_url = (
-                f"/delete_media_dir?vision_id={html.escape(selected_vision)}"
-                f"&weekday={html.escape(weekday)}"
-            )
-            file_items = "\n".join(
-                f"<li>"
-                f"<label>"
-                f"<input type='checkbox' name='files' data-weekday='{html.escape(weekday)}' "
-                f"value='{html.escape(weekday)}|{html.escape(p.name)}'> "
-                f"{html.escape(p.name)}"
-                f"</label> "
-                f"<a href='/delete_media?vision_id={html.escape(selected_vision)}&weekday={html.escape(weekday)}&filename={html.escape(p.name)}' "
-                f"onclick=\"return confirm('Delete {html.escape(p.name)}?');\">delete</a>"
-                f"</li>"
-                for p in files
-            ) or "<li class='mono'>(no files)</li>"
-            media_list_sections.append(
-                f"<h4>{html.escape(weekday)}</h4>"
-                f"<label><input type='checkbox' data-select-all='{html.escape(weekday)}'> select all</label>"
-                f" <a href='{delete_dir_url}' "
-                f"onclick=\"return confirm('Delete all in {html.escape(weekday)}?');\">delete all</a>"
-                f"<ul>{file_items}</ul>"
-            )
-        media_list_html = "\n".join(media_list_sections) or "<p class='mono'>(no media dirs)</p>"
-        body = f"""
-<h1>space-media-server</h1>
-<p class="mono">REPO_ROOT: {html.escape(str(REPO_ROOT))}</p>
-
-<details open>
-  <summary>Encode + Push</summary>
-  <form method="POST" action="/encode_push">
-    <div class="grid">
-      <label>VISION_ID
-        <select name="vision_id">{vision_opts}</select>
-      </label>
-      <label>Weekday
-        <select name="weekday">
-          <option value="all">all</option>
-          {weekday_opts}
-        </select>
-      </label>
-      <label>Target (hostname or IP)
-        <input type="text" name="target_manual" placeholder="vision-player-akiba-01 or 192.168.x.x">
-      </label>
-      <label>Target (known / leases)
-        <select name="target_select">
-          <option value="">(select)</option>
-          {target_opts}
-        </select>
-      </label>
-      <label>USER (optional)
-        <input type="text" name="player_user" value="pi">
-      </label>
-    </div>
-    <button type="submit">Run encode_and_push</button>
-    <button type="submit" formaction="/push_availability">使用期限だけPush（再エンコードなし）</button>
-  </form>
-</details>
-
-<details>
-  <summary>Known targets</summary>
-  <form method="POST" action="/save_target">
-    <div class="grid">
-      <label>Name
-        <input type="text" name="name" placeholder="vision-player-akiba-01">
-      </label>
-      <label>Target (hostname or IP)
-        <input type="text" name="target" placeholder="vision-player-akiba-01 or 192.168.x.x">
-      </label>
-      <label>IP (optional)
-        <input type="text" name="ip" placeholder="192.168.x.x">
-      </label>
-    </div>
-    <button type="submit">Save target</button>
-  </form>
-  <ul>
-    {known_list}
-  </ul>
-</details>
-
-<details open>
-  <summary>Upload Media</summary>
-  <form method="POST" action="/upload" enctype="multipart/form-data">
-    <div class="grid">
-      <label>VISION_ID
-        <select name="vision_id">{vision_opts}</select>
-      </label>
-      <label>Media Directory
-        <select name="media_dir">
-          {upload_dir_opts}
-        </select>
-      </label>
-      <label>File
-        <input type="file" name="file">
-      </label>
-    </div>
-    <label>limited素材の放映開始日時（任意）
-      <input type="text" name="available_from" placeholder="2026-10-07T00:00:00+09:00">
-    </label>
-    <label>limited素材の放映終了日時（limitedの場合は必須）
-      <input type="text" name="available_until" placeholder="2026-10-31T23:59:59+09:00">
-    </label>
-    <button type="submit">Upload</button>
-  </form>
-  <hr>
-  <form method="GET" action="/">
-    <input type="hidden" name="vision_id" value="{html.escape(selected_vision)}">
-    <input type="hidden" name="weekday" value="{html.escape(selected_weekday)}">
-    <button type="submit">Refresh file list</button>
-  </form>
-  <form method="POST" action="/delete_media_bulk" onsubmit="return confirm('Delete selected files?');">
-    <input type="hidden" name="vision_id" value="{html.escape(selected_vision)}">
-    <div class="row">
-      <button type="button" id="select-all">Select all</button>
-      <button type="button" id="clear-all">Clear all</button>
-    </div>
-    {media_list_html}
-    <button type="submit">Delete selected</button>
-  </form>
-</details>
-<script>
-  document.querySelectorAll('input[data-select-all]').forEach(function(cb) {{
-    cb.addEventListener('change', function() {{
-      var weekday = cb.getAttribute('data-select-all');
-      document.querySelectorAll('input[data-weekday=\"' + weekday + '\"]').forEach(function(x) {{
-        x.checked = cb.checked;
-      }});
-    }});
-  }});
-  document.getElementById('select-all').addEventListener('click', function() {{
-    document.querySelectorAll('input[name=\"files\"]').forEach(function(x) {{ x.checked = true; }});
-  }});
-  document.getElementById('clear-all').addEventListener('click', function() {{
-    document.querySelectorAll('input[name=\"files\"]').forEach(function(x) {{ x.checked = false; }});
-  }});
-</script>
-
-<details>
-  <summary>素材の使用可能期間（プレイリスト共通）</summary>
-  <p>使用期限は素材ごとの設定です。期限だけ変更した場合は「使用期限だけPush」で反映できます。新しい素材は初回に Encode + Push が必要です。limitedは終了日時が必須です。</p>
-  {limited_html}
-</details>
-<details open>
-  <summary>曜日素材がある日の再生設定</summary>
-  <form method="POST" action="/save_weekday_limited_mode">
-    <input type="hidden" name="vision_id" value="{html.escape(selected_vision)}">
-    <label>設定する曜日<select name="weekday">{weekday_opts}</select></label>
-    <label>曜日素材がある場合<select name="weekday_limited_mode">{limited_mode_options}</select></label>
-    <p>曜日フォルダが空なら、この選択にかかわらず always＋期限内のlimited を再生します。alwaysを選んだ場合も共通素材を再生します。設定を保存してから Encode + Push で反映してください。</p>
-    <button type="submit">再生設定を保存</button>
-  </form>
-</details>
-<details>
-  <summary>Generate Playlist</summary>
-  <form method="POST" action="/gen_playlist">
-    <div class="grid">
-      <label>VISION_ID
-        <select name="vision_id">{vision_opts}</select>
-      </label>
-      <label>Weekday
-        <select name="weekday">
-          <option value="always">always</option>
-          <option value="mon">mon</option>
-          <option value="tue">tue</option>
-          <option value="wed">wed</option>
-          <option value="thu">thu</option>
-          <option value="fri">fri</option>
-          <option value="sat">sat</option>
-          <option value="sun">sun</option>
-        </select>
-      </label>
-      <label>default_volume
-        <input type="text" name="default_volume" value="100">
-      </label>
-      <label>default_loop
-        <select name="default_loop">
-          <option value="true" selected>true</option>
-          <option value="false">false</option>
-        </select>
-      </label>
-      <label>default_start_offset_sec
-        <input type="text" name="default_start_offset_sec" value="0">
-      </label>
-      <label>active_time.from (HH:MM)
-        <input type="text" name="active_from" value="10:00" placeholder="10:00">
-      </label>
-      <label>active_time.until (HH:MM)
-        <input type="text" name="active_until" value="20:00" placeholder="20:00">
-      </label>
-      <label>auto_policy.directory
-        <input type="text" name="auto_dir" value="" placeholder="If empty, uses media/&lt;weekday&gt;">
-      </label>
-      <label>auto_policy.mode
-        <select name="auto_mode">
-          <option value="replace_if_empty" selected>replace_if_empty</option>
-          <option value="append_remaining">append_remaining</option>
-          <option value="disabled">disabled</option>
-        </select>
-      </label>
-      <label>auto_policy.extensions (comma)
-        <input type="text" name="auto_ext" value=".mp4,.mov,.m4v,.mkv,.webm,.avi,.mpg,.mpeg,.png,.jpg,.jpeg,.bmp,.webp">
-      </label>
-      <label>lane count
-        <select name="lane_count">
-          <option value="1" selected>1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-        </select>
-      </label>
-    </div>
-    <p>Items (max 3 per lane). Empty source = skip.</p>
-    <div class="row">
-      <strong>lane0</strong><br>
-      <input type="text" name="lane0_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane0_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane0_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
-    </div>
-    <div class="row">
-      <strong>lane1</strong><br>
-      <input type="text" name="lane1_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane1_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane1_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
-    </div>
-    <div class="row">
-      <strong>lane2</strong><br>
-      <input type="text" name="lane2_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane2_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane2_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
-    </div>
-    <button type="submit">Write playlist</button>
-  </form>
-  <hr>
-  <form method="GET" action="/view_playlist">
-    <label>VISION_ID
-      <select name="vision_id">{vision_opts}</select>
-    </label>
-    <label>Weekday
-      <select name="weekday">
-        {weekday_opts}
-      </select>
-    </label>
-    <button type="submit">View current playlist</button>
-  </form>
-  <form method="GET" action="/view_output">
-    <label>VISION_ID
-      <select name="vision_id">{vision_opts}</select>
-    </label>
-    <label>Weekday
-      <select name="weekday">
-        {weekday_opts}
-      </select>
-    </label>
-    <button type="submit">View output order</button>
-  </form>
-</details>
-"""
+        selected = query.get("vision_id", [""])[0]
+        if selected not in vision_ids:
+            selected = vision_ids[0] if vision_ids else ""
+        if not selected:
+            self._html("<h1>ビジョンがまだ登録されていません</h1><p>最初にビジョンの設定を作成してください。</p>")
+            return
+        targets = load_known_targets(KNOWN_TARGETS_FILE)
+        known = {target.get("target") for target in targets}
+        targets += [{"name": host, "target": host} for host in list_leases_hosts(LEASES_FILE) if host not in known and host != "*"]
+        recent = []
+        if JOBS_DIR.exists():
+            for path in sorted(JOBS_DIR.glob("*/meta.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+                try:
+                    meta = json.loads(path.read_text())
+                    if meta.get("vision_id") == selected:
+                        if meta.get("status") == "running" and not _job_running(meta):
+                            meta["status"] = "err"
+                        recent.append(meta)
+                except (ValueError, OSError):
+                    continue
+                if len(recent) == 8:
+                    break
+        try:
+            body = render_dashboard(VISION_ROOT, selected, query.get("tab", ["media"])[0],
+                                    query, targets, recent, query.get("notice", [""])[0])
+        except (ValueError, OSError) as error:
+            self._html(f"<h1>設定を読み込めませんでした</h1><p>{html.escape(str(error))}</p><a href='/'>管理画面へ戻る</a>", status=400)
+            return
         self._html(body)
 
     def do_GET_job(self, query: dict[str, list[str]]) -> None:
@@ -529,20 +223,12 @@ class Handler(BaseHTTPRequestHandler):
         running = _job_running(meta)
         stdout = _tail_text(paths["stdout"])
         stderr = _tail_text(paths["stderr"])
-        status = "ok" if meta.get("status") == "ok" else "err"
-        if running:
-            status = "ok"
-        body = f"""
-<h1>encode_and_push</h1>
-<p>Status: <span class="{status}">{html.escape(meta.get('status','running'))}</span></p>
-<p>VISION_ID: {html.escape(str(meta.get('vision_id','')))}</p>
-<p>Weekday: {html.escape(str(meta.get('weekday','')))}</p>
-<pre class="mono">{html.escape(stdout)}</pre>
-<pre class="mono">{html.escape(stderr)}</pre>
-<p><a href="/">back</a></p>
-"""
-        refresh = 3 if running else None
-        self._html(body, status=200, refresh_sec=refresh)
+        self._html(render_job(meta, stdout, stderr, running), refresh_sec=3 if running else None)
+
+    def _redirect_ui(self, vision_id, tab, notice="", **kwargs):
+        self.send_response(303)
+        self.send_header("Location", "/?" + urlencode({"vision_id": vision_id, "tab": tab, "notice": notice, **kwargs}))
+        self.end_headers()
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
@@ -550,6 +236,26 @@ class Handler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "")
         data = raw.decode("utf-8", errors="ignore")
         form = {k: v[0] for k, v in parse_qs(data).items()}
+
+        if form.get("ui") == "1" and self.path != "/upload" and form.get("vision_id") not in _list_vision_ids():
+            self._html("<h1>ビジョンが見つかりません</h1>", status=400)
+            return
+
+        if self.path in {"/save_schedule", "/save_connection"}:
+            vision_id = form.get("vision_id", "")
+            if vision_id not in _list_vision_ids():
+                self._html("<h1>ビジョンが見つかりません</h1>", status=400)
+                return
+            try:
+                if self.path == "/save_schedule":
+                    save_schedule(VISION_ROOT / vision_id, form)
+                    self._redirect_ui(vision_id, "schedule", "再生設定を保存しました。Playerへの反映はまだです。", weekday=form.get("weekday", "always"), lane=form.get("lane", "lane0"))
+                else:
+                    save_connection(VISION_ROOT / vision_id, form.get("target", "").strip(), form.get("user", "").strip())
+                    self._redirect_ui(vision_id, "settings", "接続設定を保存しました。")
+            except (ValueError, OSError, TypeError) as error:
+                self._html(f"<h1>保存できませんでした</h1><p>{html.escape(str(error))}</p><a href='javascript:history.back()'>入力画面に戻る</a>", status=400)
+            return
 
         if self.path in {"/encode_push", "/push_availability"}:
             vision_id = form.get("vision_id", "")
@@ -562,6 +268,27 @@ class Handler(BaseHTTPRequestHandler):
             env = os.environ.copy()
             env["VISION_ID"] = vision_id
             target = target_select or target_manual
+            if form.get("ui") == "1":
+                try:
+                    if not form.get("player_user", "").strip():
+                        raise ValueError("SSHユーザー名を入力してください。")
+                    save_connection(VISION_ROOT / vision_id, target, player_user)
+                    if weekday == "availability" and not (VISION_ROOT / vision_id / "output/media_availability.json").exists():
+                        raise ValueError("最初に「素材と再生設定を反映」を実行してください。")
+                    if weekday == "availability":
+                        state_path = VISION_ROOT / vision_id / "state/published.json"
+                        state = json.loads(state_path.read_text()) if state_path.exists() else {}
+                        if state.get("content") != fingerprints(VISION_ROOT / vision_id)["content"]:
+                            raise ValueError("素材・再生設定に未反映の変更があります。「素材と再生設定を反映」を実行してください。")
+                    for job_path in JOBS_DIR.glob("*/meta.json"):
+                        previous = json.loads(job_path.read_text())
+                        if previous.get("vision_id") == vision_id and previous.get("status") == "running" and _job_running(previous):
+                            raise ValueError("このビジョンの反映は処理中です。完了してから再実行してください。")
+                except (ValueError, OSError) as error:
+                    self._html(f"<h1>反映を開始できませんでした</h1><p>{html.escape(str(error))}</p><a href='javascript:history.back()'>戻る</a>", status=400)
+                    return
+            env.pop("PLAYER_IP", None)
+            env.pop("PLAYER_HOSTNAME", None)
             if target:
                 if is_ip(target):
                     env["PLAYER_IP"] = target
@@ -579,6 +306,8 @@ class Handler(BaseHTTPRequestHandler):
                 "target": target or "",
                 "player_user": player_user,
             }
+            if form.get("ui") == "1":
+                meta["publish_snapshot"] = fingerprints(VISION_ROOT / vision_id)
             job_id = _start_job(
                 [sys.executable, str(REPO_ROOT / "bin" / "push_availability.py")] if weekday == "availability" else [str(REPO_ROOT / "bin" / "encode_and_push.sh")],
                 env=env,
@@ -643,10 +372,13 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("invalid media directory")
                 if not (source_root / "media" / media_dir / filename).is_file():
                     raise ValueError("素材がありません")
-                save_media_rule(source_root, f"media/{media_dir}/{filename}", form.get("available_from", "").strip(),
-                            form.get("available_until", "").strip())
+                save_media_rule(source_root, f"media/{media_dir}/{filename}", iso_input(form.get("available_from", "").strip()),
+                            iso_input(form.get("available_until", "").strip()))
             except (ValueError, OSError) as e:
                 self._html(f"<p class='err'>{html.escape(str(e))}</p>", status=400)
+                return
+            if form.get("ui") == "1":
+                self._redirect_ui(vision_id, "media", "使用期限を保存しました。既存素材なら期限だけの反映で更新できます。")
                 return
             self._html(f"<p class='ok'>期限を保存しました。使用期限だけPushで反映できます。新しい素材はEncode + Pushが必要です。</p><a href='/?vision_id={html.escape(vision_id)}'>back</a>")
             return
@@ -655,6 +387,8 @@ class Handler(BaseHTTPRequestHandler):
             fields, files = parse_multipart(self.headers, raw)
             vision_id = fields.get("vision_id", "")
             media_dir = fields.get("media_dir", fields.get("weekday", "always"))
+            if fields.get("purpose") in {"always", "is_limited", "weekday"}:
+                media_dir = fields.get("upload_weekday", "mon") if fields["purpose"] == "weekday" else fields["purpose"]
             fileinfo = files.get("file")
             if not vision_id or fileinfo is None:
                 self._html("<p class='err'>missing vision_id or file</p>", status=400)
@@ -663,14 +397,26 @@ class Handler(BaseHTTPRequestHandler):
                 filename, content = fileinfo
                 if vision_id not in _list_vision_ids() or media_dir not in {"always", "mon", "tue", "wed", "thu", "fri", "sat", "sun", "is_limited"}:
                     raise ValueError("unknown vision or media directory")
+                available_from = iso_input(fields.get("available_from", "").strip())
+                available_until = iso_input(fields.get("available_until", "").strip())
+                if Path(filename).suffix.lower() not in EXTENSIONS:
+                    raise ValueError("対応していないファイル形式です。動画または画像を選んでください。")
+                if fields.get("ui") == "1" and (VISION_ROOT / vision_id / "source/media" / media_dir / Path(filename).name).exists() and fields.get("overwrite") != "1":
+                    raise ValueError("同名の素材があります。置き換える場合はチェックを入れてください。")
+                if available_from and available_until:
+                    from datetime import datetime
+                    if datetime.fromisoformat(available_from) > datetime.fromisoformat(available_until):
+                        raise ValueError("終了日時は開始日時より後にしてください。")
                 if media_dir == "is_limited":
-                    validate_window(fields.get("available_from", "").strip(), fields.get("available_until", "").strip())
+                    validate_window(available_from, available_until)
                 dest = save_upload(VISION_ROOT, vision_id, media_dir, filename, content)
-                if media_dir == "is_limited":
-                    save_media_rule(VISION_ROOT / vision_id / "source", f"media/{media_dir}/{dest.name}",
-                                fields.get("available_from", "").strip(), fields.get("available_until", "").strip())
+                if media_dir == "is_limited" or available_from or available_until:
+                    save_media_rule(VISION_ROOT / vision_id / "source", f"media/{media_dir}/{dest.name}", available_from, available_until)
             except Exception as e:
-                self._html(f"<p class='err'>upload failed: {html.escape(str(e))}</p>", status=500)
+                self._html(f"<h1>素材を保存できませんでした</h1><p>{html.escape(str(e))}</p><a href='javascript:history.back()'>入力画面に戻る</a>", status=400)
+                return
+            if fields.get("ui") == "1":
+                self._redirect_ui(vision_id, "media", "素材を保存しました。Playerへ反映すると再生に使われます。")
                 return
             body = f"""
 <h1>upload done</h1>
@@ -695,11 +441,16 @@ class Handler(BaseHTTPRequestHandler):
                 if "|" not in token:
                     continue
                 weekday, name = token.split("|", 1)
+                if weekday not in {*DAYS, "is_limited"}:
+                    continue
                 base_dir = VISION_ROOT / vision_id / "source" / "media" / weekday
                 target = base_dir / Path(name).name
                 if target.exists():
                     target.unlink()
                     deleted.append(f"{weekday}/{target.name}")
+            if form.get("ui") == "1":
+                self._redirect_ui(vision_id, "media", "素材を削除しました。Playerへ削除を反映するには全体の反映が必要です。")
+                return
             body = f"""
 <h1>delete done</h1>
 <p class="ok">deleted: {html.escape(', '.join(deleted))}</p>

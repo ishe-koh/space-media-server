@@ -35,7 +35,7 @@ from app.web.media import (
     save_upload,
 )
 from app.encoding_pipeline import expand_active_time_always
-from app.limited_media import load_windows, save_window, validate_window
+from app.limited_media import load_media_rules, save_media_rule, validate_window
 
 
 def _list_vision_ids() -> list[str]:
@@ -231,18 +231,20 @@ class Handler(BaseHTTPRequestHandler):
             f"<option value='{html.escape(value)}' {'selected' if value == selected_upload_dir else ''}>{html.escape(label)}</option>"
             for value, label in upload_dir_choices
         )
-        windows = load_windows(VISION_ROOT / selected_vision / "source") if selected_vision else {}
+        windows = load_media_rules(VISION_ROOT / selected_vision / "source") if selected_vision else {}
         limited_forms = []
-        for media in media_dirs.get("is_limited", []):
-            window = windows.get(media.name, {})
+        for media_dir, media in ((directory, media) for directory, files in media_dirs.items() for media in files):
+            source_id = f"media/{media_dir}/{media.name}"
+            window = windows.get(source_id, {})
             limited_forms.append(
                 f"<form method='POST' action='/save_limited'>"
                 f"<input type='hidden' name='vision_id' value='{html.escape(selected_vision, quote=True)}'>"
                 f"<input type='hidden' name='filename' value='{html.escape(media.name, quote=True)}'>"
-                f"<strong>{html.escape(media.name)}</strong>"
+                f"<input type='hidden' name='media_dir' value='{html.escape(media_dir, quote=True)}'>"
+                f"<strong>{html.escape(media_dir)}/{html.escape(media.name)}</strong>"
                 f"<label>放映開始日時（任意）<input type='text' name='available_from' "
                 f"value='{html.escape(window.get('is_available_from', ''), quote=True)}' placeholder='2026-10-07T00:00:00+09:00'></label>"
-                f"<label>放映終了日時（必須）<input type='text' name='available_until' required "
+                f"<label>放映終了日時（limitedは必須）<input type='text' name='available_until' {'required' if media_dir == 'is_limited' else ''} "
                 f"value='{html.escape(window.get('is_available_until', ''), quote=True)}' placeholder='2026-10-31T23:59:59+09:00'></label>"
                 f"<button type='submit'>期限を保存</button></form><hr>"
             )
@@ -311,6 +313,7 @@ class Handler(BaseHTTPRequestHandler):
       </label>
     </div>
     <button type="submit">Run encode_and_push</button>
+    <button type="submit" formaction="/push_availability">使用期限だけPush（再エンコードなし）</button>
   </form>
 </details>
 
@@ -393,8 +396,8 @@ class Handler(BaseHTTPRequestHandler):
 </script>
 
 <details>
-  <summary>期限付き素材（全曜日共通）</summary>
-  <p>各曜日への登録は不要です。保存後は Encode + Push の Weekday を all にして反映してください。期限未設定の素材は再生対象になりません。</p>
+  <summary>素材の使用可能期間（プレイリスト共通）</summary>
+  <p>使用期限は素材ごとの設定です。期限だけ変更した場合は「使用期限だけPush」で反映できます。新しい素材は初回に Encode + Push が必要です。limitedは終了日時が必須です。</p>
   {limited_html}
 </details>
 <details open>
@@ -469,38 +472,20 @@ class Handler(BaseHTTPRequestHandler):
     <div class="row">
       <strong>lane0</strong><br>
       <input type="text" name="lane0_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane0_item1_from" placeholder="is_available_from (optional): 2026-03-10T00:00:00+09:00">
-      <input type="text" name="lane0_item1_until" placeholder="is_available_until (optional): 2026-03-31T23:59:59+09:00">
       <input type="text" name="lane0_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane0_item2_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane0_item2_until" placeholder="is_available_until (optional)">
       <input type="text" name="lane0_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
-      <input type="text" name="lane0_item3_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane0_item3_until" placeholder="is_available_until (optional)">
     </div>
     <div class="row">
       <strong>lane1</strong><br>
       <input type="text" name="lane1_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane1_item1_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane1_item1_until" placeholder="is_available_until (optional)">
       <input type="text" name="lane1_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane1_item2_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane1_item2_until" placeholder="is_available_until (optional)">
       <input type="text" name="lane1_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
-      <input type="text" name="lane1_item3_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane1_item3_until" placeholder="is_available_until (optional)">
     </div>
     <div class="row">
       <strong>lane2</strong><br>
       <input type="text" name="lane2_item1" placeholder="media/{html.escape(selected_weekday)}/foo.mp4">
-      <input type="text" name="lane2_item1_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane2_item1_until" placeholder="is_available_until (optional)">
       <input type="text" name="lane2_item2" placeholder="media/{html.escape(selected_weekday)}/bar.mp4">
-      <input type="text" name="lane2_item2_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane2_item2_until" placeholder="is_available_until (optional)">
       <input type="text" name="lane2_item3" placeholder="media/{html.escape(selected_weekday)}/baz.mp4">
-      <input type="text" name="lane2_item3_from" placeholder="is_available_from (optional)">
-      <input type="text" name="lane2_item3_until" placeholder="is_available_until (optional)">
     </div>
     <button type="submit">Write playlist</button>
   </form>
@@ -566,9 +551,11 @@ class Handler(BaseHTTPRequestHandler):
         data = raw.decode("utf-8", errors="ignore")
         form = {k: v[0] for k, v in parse_qs(data).items()}
 
-        if self.path == "/encode_push":
+        if self.path in {"/encode_push", "/push_availability"}:
             vision_id = form.get("vision_id", "")
             weekday = form.get("weekday", "always")
+            if self.path == "/push_availability":
+                weekday = "availability"
             target_manual = form.get("target_manual", "").strip()
             target_select = form.get("target_select", "").strip()
             player_user = form.get("player_user", "pi").strip() or "pi"
@@ -581,7 +568,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     env["PLAYER_HOSTNAME"] = target
             env["PLAYER_USER"] = player_user
-            if weekday == "all":
+            if weekday in {"all", "availability"}:
                 env.pop("PLAYLIST", None)
             else:
                 env["PLAYLIST"] = f"source/playlists/{weekday}.json"
@@ -593,7 +580,7 @@ class Handler(BaseHTTPRequestHandler):
                 "player_user": player_user,
             }
             job_id = _start_job(
-                [str(REPO_ROOT / "bin" / "encode_and_push.sh")],
+                [sys.executable, str(REPO_ROOT / "bin" / "push_availability.py")] if weekday == "availability" else [str(REPO_ROOT / "bin" / "encode_and_push.sh")],
                 env=env,
                 cwd=REPO_ROOT,
                 meta=meta,
@@ -651,14 +638,17 @@ class Handler(BaseHTTPRequestHandler):
                 if vision_id not in _list_vision_ids() or not filename:
                     raise ValueError("unknown vision or filename")
                 source_root = VISION_ROOT / vision_id / "source"
-                if not (source_root / "media" / "is_limited" / filename).is_file():
+                media_dir = form.get("media_dir", "is_limited")
+                if media_dir not in {"always", "mon", "tue", "wed", "thu", "fri", "sat", "sun", "is_limited"}:
+                    raise ValueError("invalid media directory")
+                if not (source_root / "media" / media_dir / filename).is_file():
                     raise ValueError("素材がありません")
-                save_window(source_root, filename, form.get("available_from", "").strip(),
+                save_media_rule(source_root, f"media/{media_dir}/{filename}", form.get("available_from", "").strip(),
                             form.get("available_until", "").strip())
             except (ValueError, OSError) as e:
                 self._html(f"<p class='err'>{html.escape(str(e))}</p>", status=400)
                 return
-            self._html(f"<p class='ok'>期限を保存しました。Encode + Push の all で反映してください。</p><a href='/?vision_id={html.escape(vision_id)}'>back</a>")
+            self._html(f"<p class='ok'>期限を保存しました。使用期限だけPushで反映できます。新しい素材はEncode + Pushが必要です。</p><a href='/?vision_id={html.escape(vision_id)}'>back</a>")
             return
 
         if self.path == "/upload":
@@ -677,7 +667,7 @@ class Handler(BaseHTTPRequestHandler):
                     validate_window(fields.get("available_from", "").strip(), fields.get("available_until", "").strip())
                 dest = save_upload(VISION_ROOT, vision_id, media_dir, filename, content)
                 if media_dir == "is_limited":
-                    save_window(VISION_ROOT / vision_id / "source", dest.name,
+                    save_media_rule(VISION_ROOT / vision_id / "source", f"media/{media_dir}/{dest.name}",
                                 fields.get("available_from", "").strip(), fields.get("available_until", "").strip())
             except Exception as e:
                 self._html(f"<p class='err'>upload failed: {html.escape(str(e))}</p>", status=500)
@@ -755,14 +745,8 @@ class Handler(BaseHTTPRequestHandler):
                     available_from = form.get(f"{key}_from", "").strip()
                     available_until = form.get(f"{key}_until", "").strip()
                     if available_from or available_until:
-                        item = {"source": val}
-                        if available_from:
-                            item["is_available_from"] = available_from
-                        if available_until:
-                            item["is_available_until"] = available_until
-                        items.append(item)
-                    else:
-                        items.append(val)
+                        save_media_rule(VISION_ROOT / vision_id / "source", val, available_from, available_until)
+                    items.append(val)
                 lane_conf = {}
                 if items:
                     lane_conf["items"] = items

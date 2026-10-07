@@ -1,14 +1,15 @@
 import json
+import hashlib
 import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.config_loader import LanePolicy, VisionConfig, load_vision_config
 from app.layout_calc import Rect, calc_lane_rects
-from app.limited_media import limited_items
+from app.limited_media import limited_items, load_media_rules, refresh_output_availability
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
@@ -32,6 +33,8 @@ class EncodePlan:
     playlist_out: Path
     items: List[EncodeItem]
     playlist_json: Dict
+    availability: Dict
+    source_root: Path
 
 
 def expand_active_time_always(playlist: Dict) -> None:
@@ -235,143 +238,67 @@ def _map_auto_directory_for_output(directory: str, lane_id: str) -> Path:
 
 
 def _build_encode_items(
-    playlist: Dict,
-    source_root: Path,
-    encoded_dir: Path,
-    weekday: str,
+    playlist: Dict, source_root: Path, encoded_dir: Path, weekday: str,
+    config: VisionConfig,
 ) -> Tuple[List[EncodeItem], Dict]:
-    lanes = playlist.get("lanes", {})
-    auto_policy = playlist.get("auto_policy", {})
-    output_playlist = dict(playlist)
-    output_playlist.pop("auto_policy", None)
-    expand_active_time_always(output_playlist)
-    output_lanes: Dict[str, Dict] = {}
-    items_out: List[EncodeItem] = []
-    seen_output_paths: set[Path] = set()
+    output = dict(playlist)
+    output.pop("auto_policy", None)
+    output["media_availability"] = "../media_availability.json"
+    expand_active_time_always(output)
+    output_lanes = {}
+    encoded = {}
+    rules = load_media_rules(source_root)
 
-    for lane_id, lane_conf in lanes.items():
-        lane_items = lane_conf.get("items") or []
-        output_lane = dict(lane_conf)
-        output_items = []
-        lane_policy_override = lane_conf.get("lane_policy", {})
-        if not isinstance(lane_policy_override, dict):
-            raise ValueError("lane_policy must be an object")
-
-        lane_auto_policy = auto_policy
-        has_lane_auto_policy = "auto_policy" in lane_conf
-        if has_lane_auto_policy:
-            if not isinstance(lane_conf["auto_policy"], dict):
-                raise ValueError("auto_policy must be an object")
-            lane_auto_policy = lane_conf["auto_policy"]
-
-        lane_auto_policy = dict(lane_auto_policy)
-        auto_mode = lane_auto_policy.get("mode", "replace_if_empty")
-        auto_items = _build_auto_items(lane_auto_policy, source_root)
-        # Standard weekday folders fall back to ordinary always media when empty.
-        if (auto_mode != "disabled" and weekday in WEEKDAYS
-                and lane_auto_policy.get("directory") == f"media/{weekday}"
-                and not auto_items):
-            lane_auto_policy["directory"] = "media/always"
-            auto_items = _build_auto_items(lane_auto_policy, source_root)
-        lane_items = _merge_items(lane_items, auto_items, auto_mode, source_root)
-        shared_items = limited_items(source_root, IMAGE_EXTENSIONS | VIDEO_EXTENSIONS)
-        mode = playlist.get("weekday_limited_mode", "weekday_plus_limited")
-        if mode not in {"weekday_only", "weekday_plus_limited"}:
+    for lane_id, lane in playlist.get("lanes", {}).items():
+        lane_output = dict(lane)
+        policy = dict(lane.get("auto_policy", playlist.get("auto_policy", {})))
+        mode = policy.get("mode", "replace_if_empty")
+        automatic = _build_auto_items(policy, source_root)
+        if (mode != "disabled" and weekday in WEEKDAYS
+                and policy.get("directory") == f"media/{weekday}" and not automatic):
+            policy["directory"] = "media/always"
+            automatic = _build_auto_items(policy, source_root)
+        items = _merge_items(lane.get("items") or [], automatic, mode, source_root)
+        common = limited_items(source_root, IMAGE_EXTENSIONS | VIDEO_EXTENSIONS)
+        common_sources = {(source_root / item["source"]).resolve() for item in common}
+        items = [item for item in items if _parse_item(item, source_root)[0].resolve() not in common_sources]
+        limited_mode = playlist.get("weekday_limited_mode", "weekday_plus_limited")
+        if limited_mode not in {"weekday_only", "weekday_plus_limited"}:
             raise ValueError("unknown weekday_limited_mode")
-        has_weekday_media = weekday in WEEKDAYS and bool(_build_auto_items(
-            {"directory": f"media/{weekday}"}, source_root))
-        # Remove duplicate explicit entries so a common deadline cannot be bypassed.
-        configured_paths = {(source_root / item["source"]).resolve() for item in shared_items}
-        lane_items = [item for item in lane_items
-                      if _parse_item(item, source_root)[0].resolve() not in configured_paths]
-        if has_weekday_media and mode == "weekday_only":
-            shared_items = []
-        shared_paths = {(source_root / item["source"]).resolve() for item in shared_items}
-        lane_items += shared_items
+        has_weekday = weekday in WEEKDAYS and bool(_build_auto_items({"directory": f"media/{weekday}"}, source_root))
+        if not (has_weekday and limited_mode == "weekday_only"):
+            items += common
 
-        lane_dir = encoded_dir / weekday / lane_id
-        lane_dir.mkdir(parents=True, exist_ok=True)
-        fallback_dir_rel: Optional[Path] = None
-        if lane_auto_policy and auto_mode != "disabled":
-            directory = lane_auto_policy.get("directory")
-            if isinstance(directory, str) and directory:
-                fallback_dir_rel = _map_auto_directory_for_output(directory, lane_id)
-                if shared_items:
-                    # Auto discovery must never collect the encoded limited files.
-                    fallback_dir_rel = Path("_auto") / weekday / lane_id
-                output_lane["auto_policy"] = {
-                    **lane_auto_policy,
-                    "directory": str(fallback_dir_rel),
-                }
+        def register(item):
+            source, duration, extra, override = _parse_item(item, source_root)
+            source_id = source.relative_to(source_root).as_posix()
+            effective_policy = {**lane.get("lane_policy", {}), **override}
+            if not isinstance(effective_policy, dict):
+                raise ValueError("lane_policy must be an object")
+            # Availability and playlist position do not change encoded video bytes.
+            stat = source.stat() if source.exists() else None
+            signature = json.dumps({"source": source_id, "config": asdict(config),
+                "policy": effective_policy, "duration": duration,
+                "mtime": stat.st_mtime_ns if stat else None, "size": stat.st_size if stat else None}, sort_keys=True)
+            variant = hashlib.sha256(signature.encode()).hexdigest()[:20]
+            group = Path(source_id).parts[1] if Path(source_id).parts[:1] == ("media",) and len(Path(source_id).parts) > 2 else "explicit"
+            name, _ = _build_output_name(source, 900)
+            destination = encoded_dir / group / variant / lane_id / name
+            if destination not in encoded:
+                encoded[destination] = EncodeItem(source, destination, _is_image(source), duration,
+                                                 rules.get(source_id, extra), effective_policy)
+            return destination.relative_to(encoded_dir).as_posix()
+
+        lane_output["items"] = list(dict.fromkeys(register(item) for item in items))
+        if policy.get("directory") and mode != "disabled":
+            lane_output["auto_policy"] = {**policy,
+                "directory": str(_map_auto_directory_for_output(policy["directory"], lane_id)),
+                "items": list(dict.fromkeys(register(item) for item in automatic))}
         else:
-            output_lane.pop("auto_policy", None)
-
-        auto_index = 900
-        for index, item in enumerate(lane_items, start=1):
-            source_path, duration, extra, policy_override = _parse_item(item, source_root)
-            is_image = _is_image(source_path)
-            output_name, auto_index = _build_output_name(source_path, auto_index)
-            output_path = lane_dir / output_name
-            if source_path.resolve() in shared_paths:
-                output_path = encoded_dir / "_limited" / weekday / lane_id / output_name
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            if output_path not in seen_output_paths:
-                items_out.append(
-                    EncodeItem(
-                        source_path=source_path,
-                        output_path=output_path,
-                        is_image=is_image,
-                        duration_sec=duration,
-                        extra_fields=extra,
-                        policy_override={
-                            **lane_policy_override,
-                            **policy_override,
-                        },
-                    )
-                )
-                seen_output_paths.add(output_path)
-
-            # Build playlist item for vision-player
-            rel_path = output_path.relative_to(encoded_dir)
-            if extra:
-                output_item = dict(extra)
-                output_item["path"] = str(rel_path)
-                output_items.append(output_item)
-            else:
-                output_items.append(str(rel_path))
-
-        if fallback_dir_rel is not None:
-            fallback_dir = encoded_dir / fallback_dir_rel
-            fallback_dir.mkdir(parents=True, exist_ok=True)
-            fallback_auto_index = 900
-            for item in auto_items:
-                source_path, duration, extra, policy_override = _parse_item(item, source_root)
-                is_image = _is_image(source_path)
-                output_name, fallback_auto_index = _build_output_name(source_path, fallback_auto_index)
-                output_path = fallback_dir / output_name
-                if output_path in seen_output_paths:
-                    continue
-                items_out.append(
-                    EncodeItem(
-                        source_path=source_path,
-                        output_path=output_path,
-                        is_image=is_image,
-                        duration_sec=duration,
-                        extra_fields=extra,
-                        policy_override={
-                            **lane_policy_override,
-                            **policy_override,
-                        },
-                    )
-                )
-                seen_output_paths.add(output_path)
-
-        output_lane["items"] = output_items
-        output_lanes[lane_id] = output_lane
-
-    output_playlist["lanes"] = output_lanes
-    return items_out, output_playlist
+            lane_output.pop("auto_policy", None)
+        output_lanes[lane_id] = lane_output
+    output["lanes"] = output_lanes
+    return list(encoded.values()), output
 
 
 def _build_ffmpeg_cmd(
@@ -476,6 +403,7 @@ def build_encode_plan(
         source_root=source_root,
         encoded_dir=encoded_dir,
         weekday=resolved_weekday,
+        config=config,
     )
 
     playlists_dir.mkdir(parents=True, exist_ok=True)
@@ -486,6 +414,11 @@ def build_encode_plan(
         playlist_out=playlist_out,
         items=items,
         playlist_json=output_playlist,
+        source_root=source_root,
+        availability={item.output_path.relative_to(encoded_dir).as_posix(): {
+            "source": item.source_path.relative_to(source_root).as_posix(),
+            "legacy_window": item.extra_fields,
+        } for item in items},
     )
 
 
@@ -531,6 +464,11 @@ def encode_plan(
     if dry_run:
         return
 
+    refresh_output_availability(
+        source_root=plan.source_root,
+        output_root=plan.playlist_out.parent.parent,
+        entries=plan.availability,
+    )
     plan.playlist_out.write_text(
         json.dumps(plan.playlist_json, ensure_ascii=False, indent=2),
         encoding="utf-8",

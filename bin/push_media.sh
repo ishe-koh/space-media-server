@@ -139,7 +139,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ -n "${PUSH_WEEKDAY}" ]]; then
+if [[ "${PUSH_AVAILABILITY_ONLY:-0}" == "1" ]]; then
+  echo "[push] availability only (no encoding/media transfer)"
+elif [[ -n "${PUSH_WEEKDAY}" ]]; then
+  ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_MEDIA_DIR}'"
+  rsync -az --size-only -e "${RSYNC_SSH}" "${OUTPUT_MEDIA_DIR}/" "${REMOTE_HOST}:${REMOTE_MEDIA_DIR}/"
   LOCAL_WEEKDAY_MEDIA_DIR="${OUTPUT_MEDIA_DIR}/${PUSH_WEEKDAY}"
   LOCAL_WEEKDAY_PLAYLIST="${OUTPUT_PLAYLISTS_DIR}/${PUSH_WEEKDAY}.json"
   REMOTE_WEEKDAY_MEDIA_DIR="${REMOTE_MEDIA_DIR}/${PUSH_WEEKDAY}"
@@ -152,19 +156,6 @@ if [[ -n "${PUSH_WEEKDAY}" ]]; then
   if [[ ! -f "${LOCAL_WEEKDAY_PLAYLIST}" ]]; then
     echo "weekday playlist not found: ${LOCAL_WEEKDAY_PLAYLIST}" >&2
     exit 1
-  fi
-
-  echo "[push] syncing output/media (${PUSH_WEEKDAY})..."
-  ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_WEEKDAY_MEDIA_DIR}'"
-  if [[ -d "${LOCAL_WEEKDAY_MEDIA_DIR}" ]]; then
-    rsync ${WEEKDAY_RSYNC_OPTS} -e "${RSYNC_SSH}" \
-      "${LOCAL_WEEKDAY_MEDIA_DIR}/" "${REMOTE_HOST}:${REMOTE_WEEKDAY_MEDIA_DIR}/"
-  else
-    echo "[push] weekday media dir missing, clearing remote (${PUSH_WEEKDAY})..."
-    tmp_dir="$(mktemp -d)"
-    rsync ${WEEKDAY_RSYNC_OPTS} -e "${RSYNC_SSH}" \
-      "${tmp_dir}/" "${REMOTE_HOST}:${REMOTE_WEEKDAY_MEDIA_DIR}/"
-    rmdir "${tmp_dir}"
   fi
 
   echo "[push] syncing output/playlists (${PUSH_WEEKDAY})..."
@@ -181,6 +172,12 @@ else
   ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_PLAYLISTS_DIR}'"
   rsync ${RSYNC_OPTS} -e "${RSYNC_SSH}" \
     "${OUTPUT_PLAYLISTS_DIR}/" "${REMOTE_HOST}:${REMOTE_PLAYLISTS_DIR}/"
+fi
+
+if [[ -f "${VISION_DIR}/output/media_availability.json" ]]; then
+  echo "[push] syncing common media availability..."
+  ${SSH_CMD} "${REMOTE_HOST}" "mkdir -p '${REMOTE_OUTPUT_DIR}'"
+  rsync -azc -e "${RSYNC_SSH}" "${VISION_DIR}/output/media_availability.json" "${REMOTE_HOST}:${REMOTE_OUTPUT_DIR}/media_availability.json"
 fi
 
 echo "[push] restart space-vision-player..."

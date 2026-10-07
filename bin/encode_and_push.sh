@@ -62,10 +62,11 @@ fi
 if [[ "${CLEAN_OUTPUT}" == "1" && -n "${VISION_ID}" ]]; then
   OUT_DIR="${REPO_ROOT}/vision_players/${VISION_ID}/output"
   if [[ -n "${PUSH_WEEKDAY}" ]]; then
-    rm -rf "${OUT_DIR}/media/${PUSH_WEEKDAY}"
+    # Shared encoded assets may still be referenced by other weekdays.
     rm -f "${OUT_DIR}/playlists/${PUSH_WEEKDAY}.json"
   else
     rm -rf "${OUT_DIR}/media" "${OUT_DIR}/playlists"
+    rm -f "${OUT_DIR}/media_availability.json"
   fi
 fi
 
